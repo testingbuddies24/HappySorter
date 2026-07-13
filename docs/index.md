@@ -7,6 +7,7 @@
 - [README.md](../README.md) — project elevator pitch, quickstart, status
 - [SPEC.md](SPEC.md) — what we're building; goals, requirements, success criteria
 - [ARCHITECTURE.md](ARCHITECTURE.md) — how it's built; components, data model, scraping flow
+- [ROADMAP.md](ROADMAP.md) — how we'll build it; milestone-by-milestone vertical slices
 - [DEPLOYMENT.md](DEPLOYMENT.md) — running it; Docker / docker-compose / NAS-specific
 
 ## Research
@@ -17,6 +18,7 @@ The research docs capture *why* the project is shaped the way it is. Read these 
 - [research/jav-metadata-standards.md](research/jav-metadata-standards.md) — JAV code format, studios, metadata fields
 - [research/existing-projects.md](research/existing-projects.md) — OSS landscape; what already exists, what gaps we fill
 - [research/stack-recommendations.md](research/stack-recommendations.md) — why Go + SQLite + HTMX
+- [research/source-test-results.md](research/source-test-results.md) — live probe results; Cloudflare findings, source priority, mitigations
 
 ## Reading order for new contributors
 

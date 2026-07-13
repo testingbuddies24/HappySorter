@@ -83,11 +83,26 @@ Three volume mounts:
   ```go
   type Adapter interface {
       Name() string
+      // Capabilities declares what the adapter needs to work, so the
+      // manager can skip it early (e.g. no proxy configured but the
+      // adapter requires one) and surface a clear reason in the logs.
+      Capabilities() Capabilities
       Lookup(ctx context.Context, code string) (*Metadata, error)
   }
+
+  type Capabilities struct {
+      NeedsProxy     bool // site is Cloudflare-gated (aggregators)
+      NeedsAgeCookie bool // site shows an age gate before content
+      Kind           SourceKind // studio | distributor | aggregator
+  }
   ```
-- One adapter per scrape target site.
-- Shipped adapters: `javlibrary`, `javbus`, `javdb`. Others pluggable.
+- One adapter per scrape target site. The HTTP client each adapter uses is
+  injected by the manager, already wired with the configured `proxy_url`
+  and a per-source cookie jar (see § 4.1).
+- Shipped adapters, in default priority order (studio-direct first because
+  they are not Cloudflare-gated — see `research/source-test-results.md`):
+  `s1`, `sodprime`, `ideapocket`, `mgstage`, then aggregators `javbus`,
+  `javdb`, `javlibrary`. Others pluggable.
 
 ### 2.7 Organiser
 
@@ -234,6 +249,33 @@ all sources failed → mark file as `failed`,
 `metadata_cache` keyed by code. Subsequent files with the same code (multi-disc
 releases) skip scraping entirely.
 
+### 4.1 HTTP client wiring (proxy + cookies)
+
+Live probing (see `research/source-test-results.md`) showed the aggregators
+(JavLibrary, JavDB, JavBus) sit behind Cloudflare and/or an age gate, while
+studio-direct sites do not. The manager owns a single HTTP client factory so
+each adapter gets a client pre-wired for its needs:
+
+```
+manager.clientFor(adapter)
+   │
+   ├─ if adapter.Capabilities().NeedsProxy && cfg.proxy_url != ""
+   │      → route through cfg.proxy_url (HTTP/SOCKS5/CF-Worker)
+   │  else if NeedsProxy && proxy_url == ""
+   │      → skip adapter, log "needs proxy, none configured"
+   │
+   ├─ if adapter.Capabilities().NeedsAgeCookie
+   │      → attach persistent cookie jar from cookies_dir/<name>.txt
+   │      → on first 200-with-age-gate, POST the consent form, save cookie
+   │
+   └─ always: set browser User-Agent, per-source rate limiter, timeout
+```
+
+This keeps Cloudflare/age-gate handling out of the individual adapters —
+they only implement `Lookup`, parse HTML, and return `Metadata`. A source
+going dark (site adds Cloudflare, changes selectors) is a one-file fix, and
+the manager's skip-with-reason logging makes it visible in the GUI.
+
 ## 5. Jellyfin folder layout (the contract)
 
 ```
@@ -285,20 +327,47 @@ paths:
 scraping:
   default_qps: 1.0
   timeout_seconds: 30
+  # Optional egress proxy for Cloudflare-gated aggregators. Leave empty to
+  # go direct (works from most residential IPs). Accepts an HTTP/SOCKS5 URL
+  # or a Cloudflare Worker forwarder base URL. See DEPLOYMENT.md § "Optional:
+  # Cloudflare Worker proxy". Adapters with NeedsProxy=true are skipped when
+  # this is empty.
+  proxy_url: ""
+  # Where per-source age-verification cookies are persisted between restarts.
+  cookies_dir: /config/cookies
 
+# Default source list, studio-direct first (no Cloudflare), aggregators as
+# fallback. Studios reliably resolve their own codes; aggregators cover the
+# long tail. Everything ships disabled — the user opts in via the GUI.
 sources:
-  - name: javlibrary
-    enabled: false       # user must opt in
+  - name: s1                 # studio: S1 / SSIS — no Cloudflare
+    enabled: false
     priority: 1
-    qps: 0.5
-  - name: javbus
+    qps: 1.0
+  - name: sodprime           # studio: SOD — no Cloudflare
     enabled: false
     priority: 2
     qps: 1.0
-  - name: javdb
+  - name: ideapocket         # studio: Idea Pocket — no Cloudflare
     enabled: false
     priority: 3
     qps: 1.0
+  - name: mgstage            # distributor — covers many labels
+    enabled: false
+    priority: 4
+    qps: 1.0
+  - name: javbus             # aggregator — age gate, may need proxy
+    enabled: false
+    priority: 5
+    qps: 1.0
+  - name: javdb              # aggregator — Cloudflare, needs proxy
+    enabled: false
+    priority: 6
+    qps: 1.0
+  - name: javlibrary         # aggregator — most aggressive Cloudflare
+    enabled: false
+    priority: 7
+    qps: 0.5
 
 rename:
   folder_template: "{code} ({year})"
@@ -315,6 +384,8 @@ the watcher logs and waits.
 |---------------------------------|-----------------------------------------------------|
 | Source site 5xx                 | Retry that source up to 3× with backoff; then next |
 | Source site 404 (code not found)| Skip to next source immediately                     |
+| Cloudflare challenge (403 "Just a moment")| Adapter needs proxy: if `proxy_url` set, retry via proxy; else skip source, log "Cloudflare-gated, configure proxy_url" |
+| Age gate (200 but consent wall) | POST consent form once, persist cookie to `cookies_dir`, retry |
 | All sources fail                | Move file to `review/_unmatched/`, log, surface    |
 | Cover image download fails      | Generate placeholder poster.jpg; continue           |
 | NFO write fails                 | Log error; file marked `failed`; surface in logs   |

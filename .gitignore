@@ -26,6 +26,9 @@ config.local.yaml
 .DS_Store
 Thumbs.db
 
+# Tooling caches
+.serena/
+
 # Local dev data — never commit the contents of someone's library
 data/
 *.db

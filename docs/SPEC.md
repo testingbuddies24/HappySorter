@@ -91,8 +91,19 @@ For each non-rubbish video file:
 
 - Each configured source implements `Lookup(code) (*Metadata, error)`.
 - Sources are tried in user-configured priority order.
-- A "failure" that triggers fallback: HTTP error, code-not-found, missing required fields (title or cover image), context timeout.
+- **Default source order is studio-direct first, aggregators as fallback**
+  (see `research/source-test-results.md`): `s1`, `sodprime`, `ideapocket`,
+  `mgstage`, then `javbus`, `javdb`, `javlibrary`. Studio sites are not
+  Cloudflare-gated and resolve reliably; aggregators cover the long tail.
+- A "failure" that triggers fallback: HTTP error, code-not-found, missing required fields (title or cover image), context timeout, Cloudflare challenge on a source with no proxy configured.
 - Per-source rate limit (QPS) configurable; default 1 QPS.
+- **Cloudflare handling:** an optional `proxy_url` (HTTP/SOCKS5 or a
+  Cloudflare Worker forwarder) routes requests for aggregator sources.
+  When empty, Cloudflare-gated sources are skipped with a clear log reason;
+  studio sources still work. Most residential/home-NAS IPs need no proxy.
+- **Age-gate handling:** sources behind an age-consent wall (e.g. JavBus)
+  have their consent cookie POSTed once and persisted under `cookies_dir`,
+  so subsequent requests pass through automatically.
 - Cached results (code → metadata) live in SQLite so re-scrape on retry isn't required.
 - Sources ship disabled by default; user enables them in the GUI and is
   reminded of the legal/ToS context.
