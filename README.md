@@ -53,13 +53,13 @@ See [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) for the full guide (docker-compos
 
 ## Project status
 
-🏗️ **Milestone 1 complete** — the skeleton boots (config loader, SQLite +
-migrations, structured logging, HTTP server) and files dropped into `/watch`
-are triaged automatically: a rubbish filter and JAV code extractor route
-junk to `review/_filter/`, unmatched files to `review/_unmatched/`, and
-recognised codes stay queued for scraping — all tracked in SQLite so
-restarts never re-process a file. See `docs/ROADMAP.md` for what's next
-(Milestone 2: first scraper + organiser + NFO writer).
+🏗️ **Milestone 2 complete** — the full pipeline runs end-to-end for a
+studio-direct source: files dropped into `/watch` are triaged (rubbish
+filter, JAV code extraction), scraped live from S1 (with metadata caching
+so multi-disc releases skip re-scraping), and organised into a
+Jellyfin-recognised `<CODE> (<YEAR>)/` folder with `movie.nfo`,
+`poster.jpg`, `fanart.jpg`, and `backdrop.jpg`. See `docs/ROADMAP.md` for
+what's next (Milestone 3: setup GUI for folders/sources/rename).
 
 ## Repository layout
 
@@ -74,8 +74,15 @@ HappySorter/
 ├── internal/
 │   ├── config/                     # config.yaml load/save + defaults
 │   ├── database/                   # SQLite open + embedded migrations
+│   ├── fsutil/                     # cross-device-safe file move helpers
 │   ├── httpserver/                 # dashboard + /healthz
-│   └── logging/                    # slog JSON (stdout + logs table)
+│   ├── logging/                    # slog JSON (stdout + logs table)
+│   ├── nfo/                        # Kodi movie.nfo writer
+│   ├── organiser/                  # Jellyfin folder layout + image download
+│   ├── pipeline/                   # watcher -> filter -> scrape -> organise
+│   ├── scraper/                    # Adapter interface, manager, s1 adapter
+│   ├── store/                      # files + metadata_cache tables
+│   └── watcher/                    # /watch folder watcher
 ├── web/                            # (future) HTMX templates + static
 ├── docs/
 │   ├── SPEC.md
@@ -99,4 +106,5 @@ Scrape sources ship **disabled** by default — you opt in via the GUI. Scraping
 
 ## License
 
-TBD (likely MIT).
+[MIT](LICENSE) — free to use, modify, and self-host. Provided as-is, with no
+warranty; use at your own risk (see [Legal](#legal) above).

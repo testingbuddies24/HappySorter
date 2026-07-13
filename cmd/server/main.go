@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"sort"
 	"sync"
 	"syscall"
 	"time"
@@ -18,7 +19,10 @@ import (
 	"github.com/testingbuddies24/HappySorter/internal/database"
 	"github.com/testingbuddies24/HappySorter/internal/httpserver"
 	"github.com/testingbuddies24/HappySorter/internal/logging"
+	"github.com/testingbuddies24/HappySorter/internal/organiser"
 	"github.com/testingbuddies24/HappySorter/internal/pipeline"
+	"github.com/testingbuddies24/HappySorter/internal/scraper"
+	"github.com/testingbuddies24/HappySorter/internal/scraper/s1"
 	"github.com/testingbuddies24/HappySorter/internal/store"
 	"github.com/testingbuddies24/HappySorter/internal/watcher"
 )
@@ -50,8 +54,14 @@ func run() error {
 	logger.Info("starting HappySorter", "config", configPath, "db", dbPath)
 
 	fileStore := store.NewFileStore(db)
+	metaStore := store.NewMetadataStore(db)
 	fileWatcher := watcher.New(cfg.Paths.Watch, logger)
-	pl := pipeline.New(cfg, fileStore, logger)
+
+	httpClient := &http.Client{Timeout: time.Duration(cfg.Scraping.TimeoutSeconds) * time.Second}
+	mgr := scraper.NewManager(logger, buildAdapters(cfg, httpClient, logger)...)
+	org := organiser.New(cfg.Paths.Library, cfg.Rename, httpClient)
+
+	pl := pipeline.New(cfg, fileStore, metaStore, mgr, org, logger)
 
 	queueSize := func() (int, error) {
 		return fileStore.CountByState(store.StateScrape)
@@ -105,4 +115,26 @@ func envOr(key, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+// buildAdapters constructs one scraper.Adapter per enabled source in cfg,
+// in priority order. Sources with no adapter implemented yet are logged
+// and skipped rather than failing startup.
+func buildAdapters(cfg *config.Config, client *http.Client, logger *slog.Logger) []scraper.Adapter {
+	sources := append([]config.SourceConfig(nil), cfg.Sources...)
+	sort.Slice(sources, func(i, j int) bool { return sources[i].Priority < sources[j].Priority })
+
+	var adapters []scraper.Adapter
+	for _, sc := range sources {
+		if !sc.Enabled {
+			continue
+		}
+		switch sc.Name {
+		case "s1":
+			adapters = append(adapters, s1.New(client))
+		default:
+			logger.Warn("source enabled in config but no adapter implemented yet", "source", sc.Name)
+		}
+	}
+	return adapters
 }
