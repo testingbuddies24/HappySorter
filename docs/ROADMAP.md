@@ -31,18 +31,38 @@ in this environment — Docker isn't installed on this dev machine; the
 Dockerfile follows the same multi-stage pattern documented in
 `DEPLOYMENT.md` and should be verified on first NAS/Docker deploy.)
 
-## Milestone 1 — Watcher → filter → review (no scraping)
+## Milestone 1 — Watcher → filter → review (no scraping) ✅ done
 
 **Goal:** dropped files get triaged into review folders correctly.
 
-- `fsnotify` watcher on `/watch` with polling fallback.
-- Rubbish filter (extension allow-list, size floor, sample/junk patterns) → `review/_filter/`.
-- Code extractor (normalise + regex) → on miss, `review/_unmatched/`.
-- `files` table records every seen file + its state; idempotent on restart.
+- `fsnotify` watcher on `/watch` with polling fallback (60s) and an initial
+  full scan on startup, so nothing dropped while offline is missed.
+- Rubbish filter (extension allow-list, 50MB size floor, junk-extension and
+  junk-substring patterns) → `review/_filter/`.
+- Code extractor (normalise + regex `^([A-Z0-9]{2,5})-?(\d{2,5})$`, release-suffix
+  stripping) → on miss, `review/_unmatched/`.
+- Cross-device-safe move helper (rename first, copy+rename+remove fallback for
+  when `/watch` and `/library` are separate volumes).
+- `files` table records every seen file + its state; `Seen()` lookup makes
+  processing idempotent across restarts, regardless of which of the three
+  detection paths (startup scan, fsnotify, poll) re-emits a path.
+- `/healthz`'s `queue_size` now reports the live count of files in `scrape`
+  state (extracted, awaiting Milestone 2's scraper).
 
-**Verify:** drop `SSIS-001.mp4` (stays queued, no scraper yet), `notes.txt`
-(→ `_filter`), `random.mp4` (→ `_unmatched`). Restart container → no
-re-processing. All transitions visible in `/logs`.
+**Verify:** dropped `SSIS-001.mp4` (51MB) → stayed in `/watch`, `files` row
+`state=scrape, code=SSIS-001`; `notes.txt` → moved to `review/_filter/`,
+`state=review_filter, reason="junk extension .txt"`; `random.mp4` (51MB, no
+code) → moved to `review/_unmatched/`, `state=review_unmatched, reason="no
+JAV code found in filename"`. Restarted the process with `SSIS-001.mp4`
+still in place → no new log entries, no duplicate `files` rows, `queue_size`
+unchanged. `go build`, `go vet`, `gofmt -l` all clean. (Verified by running
+the binary directly against a scratch watch/library tree; Docker image
+build still unverified in this environment, per M0's note.)
+
+Also fixed while building this milestone: `docker-compose.yml`, `README.md`,
+and `DEPLOYMENT.md` previously mounted `/watch` read-only (`:ro`), which
+directly contradicted this milestone's requirement to move files out of
+`/watch` — corrected to a writable mount in all three places.
 
 ## Milestone 2 — First scraper (S1) → organise → NFO
 

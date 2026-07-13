@@ -21,7 +21,7 @@ docker run -d \
   -p 8080:8080 \
   -v /volume1/data/happy-sorter/config:/config \
   -v /volume1/data/jav:/library \
-  -v /volume1/data/watch:/watch:ro \
+  -v /volume1/data/watch:/watch \
   ghcr.io/<owner>/happy-sorter:latest
 ```
 
@@ -29,7 +29,10 @@ What this does:
 - `-p 8080:8080` — exposes the setup GUI at `http://<nas-ip>:8080`.
 - `/config` — holds `config.yaml` and `happy-sorter.db` (DB).
 - `/library` — the output Jellyfin-compatible library (writable).
-- `/watch:ro` — the input drop folder; mounted read-only so a stray script can't write to your source files.
+- `/watch` — the input drop folder. **Must be writable**: HappySorter moves
+  rubbish and unmatched files out of it into `review/_filter/` and
+  `review/_unmatched/` under `/library` (F2/F6), and moves matched files
+  into the organised library (F5). A read-only mount would break this.
 
 Open `http://<nas-ip>:8080` and follow the setup wizard.
 
@@ -46,7 +49,7 @@ services:
     volumes:
       - ./config:/config                       # DB + config.yaml
       - /volume1/data/jav:/library             # organised library output
-      - /volume1/data/watch:/watch:ro          # drop folder (read-only)
+      - /volume1/data/watch:/watch              # drop folder (writable — see § 2)
     environment:
       - TZ=Asia/Hong_Kong                      # match your NAS timezone
     # Optional hardening:
@@ -204,7 +207,8 @@ image: ghcr.io/<owner>/happy-sorter:1.0.0
 - [ ] Container runs as non-root (UID 1000).
 - [ ] `read_only: true` on the container root FS.
 - [ ] `no-new-privileges:true` security option.
-- [ ] Watch folder mounted `:ro`.
+- [ ] Watch folder permissions scoped to HappySorter's UID only (it needs
+      write access to move files out, so `:ro` is not an option — see § 2).
 - [ ] Jellyfin and HappySorter on the same trusted VLAN.
 - [ ] Backup `./config/` daily.
 

@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 
@@ -17,6 +18,9 @@ import (
 	"github.com/testingbuddies24/HappySorter/internal/database"
 	"github.com/testingbuddies24/HappySorter/internal/httpserver"
 	"github.com/testingbuddies24/HappySorter/internal/logging"
+	"github.com/testingbuddies24/HappySorter/internal/pipeline"
+	"github.com/testingbuddies24/HappySorter/internal/store"
+	"github.com/testingbuddies24/HappySorter/internal/watcher"
 )
 
 func main() {
@@ -45,11 +49,33 @@ func run() error {
 	slog.SetDefault(logger)
 	logger.Info("starting HappySorter", "config", configPath, "db", dbPath)
 
-	srv := httpserver.New(logger)
+	fileStore := store.NewFileStore(db)
+	fileWatcher := watcher.New(cfg.Paths.Watch, logger)
+	pl := pipeline.New(cfg, fileStore, logger)
+
+	queueSize := func() (int, error) {
+		return fileStore.CountByState(store.StateScrape)
+	}
+
+	srv := httpserver.New(logger, queueSize)
 	httpSrv := &http.Server{
 		Addr:    fmt.Sprintf(":%d", cfg.Server.Port),
 		Handler: srv.Handler(),
 	}
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		fileWatcher.Run(ctx)
+	}()
+	go func() {
+		defer wg.Done()
+		pl.Run(ctx, fileWatcher.Events())
+	}()
 
 	errCh := make(chan error, 1)
 	go func() {
@@ -59,16 +85,17 @@ func run() error {
 		}
 	}()
 
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
-
 	select {
 	case <-ctx.Done():
 		logger.Info("shutting down")
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		return httpSrv.Shutdown(shutdownCtx)
+		err := httpSrv.Shutdown(shutdownCtx)
+		wg.Wait()
+		return err
 	case err := <-errCh:
+		stop()
+		wg.Wait()
 		return err
 	}
 }

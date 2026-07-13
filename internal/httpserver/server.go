@@ -20,13 +20,18 @@ type Server struct {
 	logger    *slog.Logger
 	startedAt time.Time
 	mux       *http.ServeMux
+	queueSize func() (int, error)
 }
 
-func New(logger *slog.Logger) *Server {
+// New builds the HTTP server. queueSize reports how many files are
+// currently waiting on the pipeline (e.g. extracted but not yet scraped);
+// pass nil to always report 0.
+func New(logger *slog.Logger, queueSize func() (int, error)) *Server {
 	s := &Server{
 		logger:    logger,
 		startedAt: time.Now(),
 		mux:       http.NewServeMux(),
+		queueSize: queueSize,
 	}
 	s.routes()
 	return s
@@ -78,10 +83,19 @@ type healthzResponse struct {
 }
 
 func (s *Server) handleHealthz(w http.ResponseWriter, _ *http.Request) {
+	queueSize := 0
+	if s.queueSize != nil {
+		if n, err := s.queueSize(); err != nil {
+			s.logger.Error("querying queue size", "error", err)
+		} else {
+			queueSize = n
+		}
+	}
+
 	resp := healthzResponse{
 		Version:      Version,
 		UptimeSecond: int64(time.Since(s.startedAt).Seconds()),
-		QueueSize:    0, // pipeline worker lands in Milestone 1
+		QueueSize:    queueSize,
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(resp)
