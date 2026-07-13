@@ -64,19 +64,59 @@ and `DEPLOYMENT.md` previously mounted `/watch` read-only (`:ro`), which
 directly contradicted this milestone's requirement to move files out of
 `/watch` — corrected to a writable mount in all three places.
 
-## Milestone 2 — First scraper (S1) → organise → NFO
+## Milestone 2 — First scraper (S1) → organise → NFO ✅ done
 
 **Goal:** full pipeline end-to-end for a studio-direct code, no proxy.
 
-- Scrape manager + `Adapter` interface + HTTP client factory (§ 4.1).
-- `s1` adapter (studio-direct; no Cloudflare — proven in probing).
-- Organiser: create `<CODE> (<YEAR>)/`, download poster/fanart, move video.
-- NFO writer (Kodi movie schema).
-- `metadata_cache` populated; multi-disc codes reuse cache.
+- Scrape manager (`internal/scraper`) + `Adapter` interface + `Manager.Lookup`
+  fallback loop; `Manager.Empty()` preserves Milestone 1's "no scraper
+  enabled yet, stay queued" behaviour when zero sources are enabled.
+- `s1` adapter (`internal/scraper/s1`): studio-direct, no Cloudflare, no age
+  gate. Verified live against `s1s1s1.com`: the detail page sits at a
+  predictable URL (`/works/detail/<CODE-NO-HYPHEN>`), so no search step is
+  needed; unknown codes return HTTP 200 with a generic page rather than a
+  real 404, so "not found" is detected by the absence of the title element.
+- Organiser (`internal/organiser`): creates `<CODE> (<YEAR>)/`, downloads
+  `poster.jpg` + `fanart.jpg` (S1 has no separate wide/backdrop asset, so
+  the box cover is reused for both), writes `backdrop.jpg` as an alias of
+  `fanart.jpg`, moves+renames the video via the shared `internal/fsutil`
+  move helper (promoted out of `internal/pipeline` so both packages use the
+  same cross-device-safe move).
+- NFO writer (`internal/nfo`): Kodi `movie.nfo` XML (title, plot, runtime,
+  premiered, year, studio, director, genre[], actor[], uniqueid).
+- `metadata_cache` (`internal/store/metadata.go`) populated on every
+  successful scrape; a second file with the same code hits the cache and
+  skips the HTML scrape entirely (verified: both files land in the same
+  `<CODE> (<YEAR>)/` folder — real multi-disc behaviour, not just avoided
+  re-work). Note: `cover_path`/`fanart_path` currently cache the *source
+  URL*, not a local path — the organiser still re-downloads images on a
+  cache hit, so only the scrape+parse step is actually saved. Local-image
+  reuse is a possible fast-follow, not done here.
+- Deliberately deferred out of this slice (not forgotten): `actors/<name>.jpg`
+  per-actress photos and `thumb.jpg`. Both need extra scraping (an actress
+  detail-page fetch each) beyond what this milestone's verify step requires;
+  picking them up is a small addition whenever the GUI/polish milestones
+  need them.
 
-**Verify:** drop a real S1 code → within 30 s it lands in
-`/library/<CODE> (<YEAR>)/` with `movie.nfo` + `poster.jpg` + `fanart.jpg`;
-point Jellyfin at `/library` and confirm it displays title/year/cover/actress.
+**Verify:** ran the built binary directly (no Docker in this dev environment,
+consistent with M0/M1's caveat) against a scratch watch/library tree with
+`s1` enabled in config:
+- Real code `SSIS-001.mp4` (60MB) → scraped live from `s1s1s1.com`,
+  organised within ~2s into `/library/SSIS-001 (2021)/` containing the
+  renamed video, `poster.jpg`, `fanart.jpg`, `backdrop.jpg`, and a
+  `movie.nfo` with correct title/plot/runtime/genres/actresses/director in
+  Japanese — `files.state=done`.
+- Second file, same code, different container (`SSIS-001.mkv`) → logged
+  "metadata cache hit, skipping scrape", landed in the *same* release
+  folder alongside the first file (multi-disc).
+- Well-formed but nonexistent code (`ZFAK-999.mp4`) → all sources failed,
+  routed to `review/_unmatched/` with `state=failed,
+  reason="scrape failed: all sources failed for code ZFAK-999"`.
+- `go build`, `go vet`, `gofmt -l` all clean.
+- Not verified in this environment: pointing an actual Jellyfin instance at
+  `/library` and confirming it renders the metadata (no Jellyfin install
+  available here) — the NFO/image/folder layout matches the Kodi schema
+  Jellyfin expects, but this last hop is unverified.
 
 ## Milestone 3 — Setup GUI (folders, sources, rename)
 

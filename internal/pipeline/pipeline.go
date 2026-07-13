@@ -5,22 +5,29 @@ package pipeline
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
 
 	"github.com/testingbuddies24/HappySorter/internal/config"
+	"github.com/testingbuddies24/HappySorter/internal/fsutil"
+	"github.com/testingbuddies24/HappySorter/internal/organiser"
+	"github.com/testingbuddies24/HappySorter/internal/scraper"
 	"github.com/testingbuddies24/HappySorter/internal/store"
 )
 
 type Pipeline struct {
-	cfg    *config.Config
-	store  *store.FileStore
-	logger *slog.Logger
+	cfg       *config.Config
+	store     *store.FileStore
+	metaStore *store.MetadataStore
+	manager   *scraper.Manager
+	organiser *organiser.Organiser
+	logger    *slog.Logger
 }
 
-func New(cfg *config.Config, st *store.FileStore, logger *slog.Logger) *Pipeline {
-	return &Pipeline{cfg: cfg, store: st, logger: logger}
+func New(cfg *config.Config, st *store.FileStore, metaStore *store.MetadataStore, manager *scraper.Manager, org *organiser.Organiser, logger *slog.Logger) *Pipeline {
+	return &Pipeline{cfg: cfg, store: st, metaStore: metaStore, manager: manager, organiser: org, logger: logger}
 }
 
 // Run consumes file paths from events until ctx is cancelled or events closes.
@@ -33,12 +40,12 @@ func (p *Pipeline) Run(ctx context.Context, events <-chan string) {
 			if !ok {
 				return
 			}
-			p.process(path)
+			p.process(ctx, path)
 		}
 	}
 }
 
-func (p *Pipeline) process(path string) {
+func (p *Pipeline) process(ctx context.Context, path string) {
 	seen, err := p.store.Seen(path)
 	if err != nil {
 		p.logger.Error("checking file store", "path", path, "error", err)
@@ -70,16 +77,57 @@ func (p *Pipeline) process(path string) {
 		return
 	}
 
-	p.logger.Info("code extracted, queued for scrape", "path", path, "code", code)
-	if err := p.store.Record(path, path, store.StateScrape, code, ""); err != nil {
-		p.logger.Error("recording extracted file", "path", path, "error", err)
+	if p.manager.Empty() {
+		p.logger.Info("code extracted, queued for scrape", "path", path, "code", code)
+		if err := p.store.Record(path, path, store.StateScrape, code, ""); err != nil {
+			p.logger.Error("recording extracted file", "path", path, "error", err)
+		}
+		return
 	}
+
+	meta, err := p.lookupMetadata(ctx, code)
+	if err != nil {
+		p.route(path, p.cfg.Paths.ReviewUnmatched, store.StateFailed, code, err.Error())
+		return
+	}
+
+	dest, err := p.organiser.Organise(ctx, meta, path)
+	if err != nil {
+		p.logger.Error("organising file", "path", path, "code", code, "error", err)
+		p.route(path, p.cfg.Paths.ReviewUnmatched, store.StateFailed, code, "organise failed: "+err.Error())
+		return
+	}
+
+	if err := p.metaStore.Put(meta); err != nil {
+		p.logger.Error("caching metadata", "code", code, "error", err)
+	}
+	if err := p.store.Record(path, dest, store.StateDone, code, ""); err != nil {
+		p.logger.Error("recording organised file", "path", path, "error", err)
+	}
+	p.logger.Info("organised", "path", path, "dest", dest, "code", code)
+}
+
+// lookupMetadata returns cached metadata for code if present (skipping a
+// re-scrape for multi-disc releases), otherwise tries the scrape manager.
+func (p *Pipeline) lookupMetadata(ctx context.Context, code string) (*scraper.Metadata, error) {
+	if cached, found, err := p.metaStore.Get(code); err != nil {
+		p.logger.Error("reading metadata cache", "code", code, "error", err)
+	} else if found {
+		p.logger.Info("metadata cache hit, skipping scrape", "code", code)
+		return cached, nil
+	}
+
+	meta, err := p.manager.Lookup(ctx, code)
+	if err != nil {
+		return nil, fmt.Errorf("scrape failed: %w", err)
+	}
+	return meta, nil
 }
 
 // route moves a rejected file into a review folder and records its outcome.
 func (p *Pipeline) route(path, reviewDir string, state store.FileState, code, reason string) {
-	dest := uniquePath(filepath.Join(reviewDir, filepath.Base(path)))
-	if err := moveFile(path, dest); err != nil {
+	dest := fsutil.UniquePath(filepath.Join(reviewDir, filepath.Base(path)))
+	if err := fsutil.MoveFile(path, dest); err != nil {
 		p.logger.Error("moving file to review folder", "path", path, "dest", dest, "error", err)
 		return
 	}
