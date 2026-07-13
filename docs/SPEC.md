@@ -132,10 +132,13 @@ For each successfully-scraped item:
 
 ### F6. Review folder
 
-Two sibling folders, both visible in the GUI's home screen:
+Three sibling folders, all visible in the GUI's home screen:
 
 - `review/_filter/` — files the rubbish filter rejected.
 - `review/_unmatched/` — files where the code couldn't be parsed.
+- `review/_duplicate/` — files whose code already has an organised release
+  at the computed destination. The existing release is left untouched; the
+  incoming file is moved here for the user to compare and resolve by hand.
 
 User can:
 - List contents of each.
@@ -205,7 +208,9 @@ The project is "done for v1" when:
 6. A `.txt` file dropped into the watched folder ends up in
    `review/_filter/`, not the library.
 7. A file named `random.mp4` (no JAV code) ends up in `review/_unmatched/`.
-8. Container survives restart; watcher resumes without re-processing.
+8. Dropping a second file that resolves to an already-organised code ends
+   up in `review/_duplicate/`, and the existing library release is unchanged.
+9. Container survives restart; watcher resumes without re-processing.
 
 ## 8. Legal / ethical posture
 

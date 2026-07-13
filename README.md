@@ -58,8 +58,14 @@ studio-direct source: files dropped into `/watch` are triaged (rubbish
 filter, JAV code extraction), scraped live from S1 (with metadata caching
 so multi-disc releases skip re-scraping), and organised into a
 Jellyfin-recognised `<CODE> (<YEAR>)/` folder with `movie.nfo`,
-`poster.jpg`, `fanart.jpg`, and `backdrop.jpg`. See `docs/ROADMAP.md` for
-what's next (Milestone 3: setup GUI for folders/sources/rename).
+`poster.jpg`, `fanart.jpg`, and `backdrop.jpg`. A file that would collide
+with an already-organised release is left alone and routed to
+`review/_duplicate/` instead of being overwritten or auto-renamed. See
+`docs/ROADMAP.md` for what's next (Milestone 3: setup GUI for
+folders/sources/rename).
+
+For a hands-on sandbox to run the server yourself and drop test files in,
+see [`testbed/README.md`](testbed/README.md).
 
 ## Repository layout
 

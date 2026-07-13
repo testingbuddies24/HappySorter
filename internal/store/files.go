@@ -16,6 +16,7 @@ const (
 	StateDetected        FileState = "detected"
 	StateReviewFilter    FileState = "review_filter"
 	StateReviewUnmatched FileState = "review_unmatched"
+	StateReviewDuplicate FileState = "review_duplicate"
 	StateScrape          FileState = "scrape"
 	StateOrganise        FileState = "organise"
 	StateDone            FileState = "done"

@@ -29,6 +29,7 @@ type PathsConfig struct {
 	Library         string `yaml:"library"`
 	ReviewFilter    string `yaml:"review_filter"`
 	ReviewUnmatched string `yaml:"review_unmatched"`
+	ReviewDuplicate string `yaml:"review_duplicate"`
 }
 
 type ScrapingConfig struct {
@@ -65,6 +66,7 @@ func Default() *Config {
 			Library:         "/library",
 			ReviewFilter:    "/library/review/_filter",
 			ReviewUnmatched: "/library/review/_unmatched",
+			ReviewDuplicate: "/library/review/_duplicate",
 		},
 		Scraping: ScrapingConfig{
 			DefaultQPS:     1.0,
