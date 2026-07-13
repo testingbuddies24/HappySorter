@@ -29,7 +29,7 @@ docker run -d \
   -p 8080:8080 \
   -v $(pwd)/happy-sorter/config:/config \
   -v /path/to/library:/library \
-  -v /path/to/watch:/watch:ro \
+  -v /path/to/watch:/watch \
   ghcr.io/<owner>/happy-sorter:latest
 ```
 
@@ -53,10 +53,13 @@ See [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) for the full guide (docker-compos
 
 ## Project status
 
-🏗️ **Milestone 0 complete** — the skeleton boots: config loader, SQLite +
-migrations, structured logging (stdout + DB), and an HTTP server serving a
-placeholder dashboard and `/healthz`. See `docs/ROADMAP.md` for what's next
-(Milestone 1: folder watcher + rubbish filter).
+🏗️ **Milestone 1 complete** — the skeleton boots (config loader, SQLite +
+migrations, structured logging, HTTP server) and files dropped into `/watch`
+are triaged automatically: a rubbish filter and JAV code extractor route
+junk to `review/_filter/`, unmatched files to `review/_unmatched/`, and
+recognised codes stay queued for scraping — all tracked in SQLite so
+restarts never re-process a file. See `docs/ROADMAP.md` for what's next
+(Milestone 2: first scraper + organiser + NFO writer).
 
 ## Repository layout
 

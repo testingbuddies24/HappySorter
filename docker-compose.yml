@@ -8,6 +8,6 @@ services:
     volumes:
       - ./config:/config             # DB + config.yaml
       - ./library:/library           # organised library output
-      - ./watch:/watch:ro            # drop folder (read-only)
+      - ./watch:/watch                # drop folder (must be writable — HappySorter moves files out of it)
     environment:
       - TZ=UTC
