@@ -34,10 +34,29 @@ func New(libraryRoot string, rename config.RenameConfig, client *http.Client) *O
 	return &Organiser{libraryRoot: libraryRoot, rename: rename, client: client}
 }
 
+// DuplicateError is returned by Organise when a file already sits at the
+// computed video destination. The caller should route the incoming file
+// somewhere for the user to handle manually, rather than silently
+// suffixing a new name or overwriting the existing one.
+type DuplicateError struct {
+	ExistingPath string
+}
+
+func (e *DuplicateError) Error() string {
+	return fmt.Sprintf("a file already exists at %s", e.ExistingPath)
+}
+
 // Organise moves videoPath into the release folder for m and writes its
 // poster/fanart/NFO alongside it. Returns the video's final path.
 func (o *Organiser) Organise(ctx context.Context, m *scraper.Metadata, videoPath string) (string, error) {
 	dir := filepath.Join(o.libraryRoot, o.renderName(o.rename.FolderTemplate, m))
+	fileName := o.renderName(o.rename.FileTemplate, m) + strings.ToLower(filepath.Ext(videoPath))
+	dest := filepath.Join(dir, fileName)
+
+	if _, err := os.Stat(dest); err == nil {
+		return "", &DuplicateError{ExistingPath: dest}
+	}
+
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", fmt.Errorf("creating library folder: %w", err)
 	}
@@ -60,8 +79,6 @@ func (o *Organiser) Organise(ctx context.Context, m *scraper.Metadata, videoPath
 		return "", fmt.Errorf("writing nfo: %w", err)
 	}
 
-	fileName := o.renderName(o.rename.FileTemplate, m) + strings.ToLower(filepath.Ext(videoPath))
-	dest := fsutil.UniquePath(filepath.Join(dir, fileName))
 	if err := fsutil.MoveFile(videoPath, dest); err != nil {
 		return "", fmt.Errorf("moving video: %w", err)
 	}

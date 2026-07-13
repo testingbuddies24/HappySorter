@@ -5,6 +5,7 @@ package pipeline
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -93,6 +94,12 @@ func (p *Pipeline) process(ctx context.Context, path string) {
 
 	dest, err := p.organiser.Organise(ctx, meta, path)
 	if err != nil {
+		var dupErr *organiser.DuplicateError
+		if errors.As(err, &dupErr) {
+			p.logger.Warn("duplicate file, routing for manual review", "path", path, "code", code, "existing", dupErr.ExistingPath)
+			p.route(path, p.cfg.Paths.ReviewDuplicate, store.StateReviewDuplicate, code, err.Error())
+			return
+		}
 		p.logger.Error("organising file", "path", path, "code", code, "error", err)
 		p.route(path, p.cfg.Paths.ReviewUnmatched, store.StateFailed, code, "organise failed: "+err.Error())
 		return

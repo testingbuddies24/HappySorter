@@ -162,7 +162,7 @@ CREATE TABLE files (
   id           INTEGER PRIMARY KEY AUTOINCREMENT,
   source_path  TEXT NOT NULL,           -- where we found it
   current_path TEXT,                    -- where it is now (may differ)
-  state        TEXT NOT NULL,           -- detected|filtering|extracting|scrape|organise|done|review_filter|review_unmatched|failed
+  state        TEXT NOT NULL,           -- detected|filtering|extracting|scrape|organise|done|review_filter|review_unmatched|review_duplicate|failed
   code         TEXT,                    -- extracted JAV code, NULL until extracted
   reason       TEXT,                    -- reason if routed to review
   source       TEXT,                    -- which scrape adapter provided metadata
@@ -249,6 +249,14 @@ all sources failed → mark file as `failed`,
 `metadata_cache` keyed by code. Subsequent files with the same code (multi-disc
 releases) skip scraping entirely.
 
+**Duplicate destination files:** the organiser computes the final video path
+before touching anything. If a file already sits there (e.g. the same code was
+already organised, or the incoming file is a genuine re-download), it does
+**not** silently suffix a new name or overwrite the existing file — the
+already-organised release is left completely untouched, and the incoming file
+is instead routed to `review/_duplicate/` with `state=review_duplicate`, for
+the user to compare and resolve by hand.
+
 ### 4.1 HTTP client wiring (proxy + cookies)
 
 Live probing (see `research/source-test-results.md`) showed the aggregators
@@ -323,6 +331,7 @@ paths:
   library: /library
   review_filter: /library/review/_filter
   review_unmatched: /library/review/_unmatched
+  review_duplicate: /library/review/_duplicate
 
 scraping:
   default_qps: 1.0
@@ -387,6 +396,7 @@ the watcher logs and waits.
 | Cloudflare challenge (403 "Just a moment")| Adapter needs proxy: if `proxy_url` set, retry via proxy; else skip source, log "Cloudflare-gated, configure proxy_url" |
 | Age gate (200 but consent wall) | POST consent form once, persist cookie to `cookies_dir`, retry |
 | All sources fail                | Move file to `review/_unmatched/`, log, surface    |
+| Destination file already exists | Leave the existing organised release untouched; move the incoming file to `review/_duplicate/`, `state=review_duplicate`, log, surface |
 | Cover image download fails      | Generate placeholder poster.jpg; continue           |
 | NFO write fails                 | Log error; file marked `failed`; surface in logs   |
 | SQLite write fails              | Log error; retry once; if still failing, panic to surface |

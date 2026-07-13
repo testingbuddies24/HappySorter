@@ -44,3 +44,8 @@ logs/
 # Docker
 Dockerfile.local
 docker-compose.local.yml
+
+# Persistent local testbed for manual runs (see testbed/README.md) —
+# real test video/image/NFO files and the runtime DB, never commit
+testbed/*
+!testbed/README.md

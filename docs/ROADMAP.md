@@ -118,6 +118,30 @@ consistent with M0/M1's caveat) against a scratch watch/library tree with
   available here) — the NFO/image/folder layout matches the Kodi schema
   Jellyfin expects, but this last hop is unverified.
 
+### Addendum — duplicate-destination handling
+
+The organiser no longer auto-suffixes when a file already sits at the
+computed video destination (previously it would have via
+`fsutil.UniquePath`). It now computes the destination path first, before
+any side effect (folder creation, image download, NFO write), and returns
+a typed `*organiser.DuplicateError` on collision. The pipeline routes this
+case to a new `review/_duplicate/` folder with `state=review_duplicate`,
+distinct from the generic `failed` path — the existing organised release
+is left completely untouched, and the incoming file is left for the user
+to compare and resolve by hand.
+
+**Verify:** built the binary and ran it against a persistent `testbed/`
+folder (see `testbed/README.md`) rather than a throwaway scratch dir:
+- `SSIS-001.mp4` (60MB) organised normally into `SSIS-001 (2021)/`.
+- A second file with the same code and extension (`SSIS-001-UC.mp4`,
+  normalises to the same code) hit the metadata cache, then the organiser's
+  new collision check fired — logged `"duplicate file, routing for manual
+  review"` with the existing path, landed untouched in
+  `review/_duplicate/`, `state=review_duplicate`.
+- Confirmed the original `SSIS-001 (2021)/SSIS-001 (2021).mp4` was
+  byte-for-byte unchanged (same size/mtime/checksum) after the collision.
+- `go build`, `go vet`, `gofmt -l` all clean.
+
 ## Milestone 3 — Setup GUI (folders, sources, rename)
 
 **Goal:** everything configurable without editing YAML by hand.

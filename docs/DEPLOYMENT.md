@@ -30,9 +30,10 @@ What this does:
 - `/config` — holds `config.yaml` and `happy-sorter.db` (DB).
 - `/library` — the output Jellyfin-compatible library (writable).
 - `/watch` — the input drop folder. **Must be writable**: HappySorter moves
-  rubbish and unmatched files out of it into `review/_filter/` and
-  `review/_unmatched/` under `/library` (F2/F6), and moves matched files
-  into the organised library (F5). A read-only mount would break this.
+  rubbish, unmatched, and duplicate files out of it into `review/_filter/`,
+  `review/_unmatched/`, and `review/_duplicate/` under `/library` (F2/F6),
+  and moves matched files into the organised library (F5). A read-only
+  mount would break this.
 
 Open `http://<nas-ip>:8080` and follow the setup wizard.
 
@@ -68,7 +69,7 @@ docker compose logs -f happy-sorter
 ## 4. First-run setup (web GUI)
 
 1. Open `http://<nas-ip>:8080` → Status dashboard.
-2. Go to **Setup → Folders** → confirm `/watch`, `/library`, `/library/review/_filter`, `/library/review/_unmatched`. Save.
+2. Go to **Setup → Folders** → confirm `/watch`, `/library`, `/library/review/_filter`, `/library/review/_unmatched`, `/library/review/_duplicate`. Save.
 3. Go to **Setup → Sources** → enable at least one scrape source, set its priority (1 = tried first). Save.
    - Start with the **studio-direct sources** (`s1`, `sodprime`, `ideapocket`, `mgstage`) — they work from any IP with no proxy.
    - The **aggregators** (`javbus`, `javdb`, `javlibrary`) sit behind Cloudflare. Try them directly first; if the logs show `Cloudflare-gated`, set a proxy (§ 4a).
@@ -196,6 +197,7 @@ image: ghcr.io/<owner>/happy-sorter:1.0.0
 | GUI doesn't load                       | Port 8080 blocked; wrong NAS IP             | Check `docker ps`, NAS firewall |
 | Files dropped, nothing happens         | Watcher paused; source not enabled          | Resume in dashboard; enable source in Setup → Sources |
 | All files end up in `review/_unmatched/` | Source site is down; code regex too strict | Check Logs; try a different source |
+| File ends up in `review/_duplicate/`   | A release for that code already exists in the library | Compare the two files by hand, then delete one; the existing library release was left untouched |
 | Logs show `Cloudflare-gated`            | Aggregator source challenged your IP        | Enable a studio source, or set a proxy (§ 4a) |
 | Cover image is a placeholder            | Source returned no cover                   | Try another source; manually drop cover into the folder |
 | `permission denied` on `/library`      | UID mismatch between container and NAS      | Set `user: "1000:1000"` in compose and `chown -R 1000:1000 /volume1/data/jav` |
