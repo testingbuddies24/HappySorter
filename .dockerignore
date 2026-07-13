@@ -1,0 +1,11 @@
+.git
+.serena
+config
+library
+watch
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+docs
+README.md

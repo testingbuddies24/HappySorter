@@ -28,6 +28,7 @@ Thumbs.db
 
 # Tooling caches
 .serena/
+.tools/
 
 # Local dev data — never commit the contents of someone's library
 data/
