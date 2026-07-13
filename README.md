@@ -53,29 +53,39 @@ See [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) for the full guide (docker-compos
 
 ## Project status
 
-🚧 **Pre-implementation.** Documentation is in place; code is not yet written. See `docs/SPEC.md` for the v1 scope.
+🏗️ **Milestone 0 complete** — the skeleton boots: config loader, SQLite +
+migrations, structured logging (stdout + DB), and an HTTP server serving a
+placeholder dashboard and `/healthz`. See `docs/ROADMAP.md` for what's next
+(Milestone 1: folder watcher + rubbish filter).
 
 ## Repository layout
 
 ```
 HappySorter/
 ├── README.md                       ← this file
+├── go.mod / go.sum
+├── Dockerfile
+├── docker-compose.yml
+├── cmd/
+│   └── server/                     # main entrypoint
+├── internal/
+│   ├── config/                     # config.yaml load/save + defaults
+│   ├── database/                   # SQLite open + embedded migrations
+│   ├── httpserver/                 # dashboard + /healthz
+│   └── logging/                    # slog JSON (stdout + logs table)
+├── web/                            # (future) HTMX templates + static
 ├── docs/
 │   ├── SPEC.md
 │   ├── ARCHITECTURE.md
+│   ├── ROADMAP.md
 │   ├── DEPLOYMENT.md
 │   ├── index.md
 │   └── research/
 │       ├── website-analysis.md
 │       ├── jav-metadata-standards.md
 │       ├── existing-projects.md
-│       └── stack-recommendations.md
-├── (future) cmd/                   # main entrypoint
-├── (future) internal/              # pipeline / scraper / db / http
-├── (future) web/                   # templates + static
-├── (future) migrations/
-├── (future) Dockerfile
-└── (future) docker-compose.yml
+│       ├── stack-recommendations.md
+│       └── source-test-results.md
 ```
 
 ## Legal

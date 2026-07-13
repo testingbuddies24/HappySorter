@@ -1,0 +1,13 @@
+services:
+  happy-sorter:
+    build: .
+    container_name: happy-sorter
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./config:/config             # DB + config.yaml
+      - ./library:/library           # organised library output
+      - ./watch:/watch:ro            # drop folder (read-only)
+    environment:
+      - TZ=UTC

@@ -9,17 +9,27 @@ and never a big-bang integration at the end. Studio-first source strategy
 (from `research/source-test-results.md`) means the first working scraper needs
 no proxy, so we can prove the end-to-end pipeline early.
 
-## Milestone 0 — Skeleton that boots
+## Milestone 0 — Skeleton that boots ✅ done
 
 **Goal:** `docker run` produces a container that serves an empty dashboard.
 
 - `go mod init`, `cmd/server/main.go`, config load from `/config/config.yaml`
   (generate defaults if missing), `slog` JSON logging to stdout + SQLite.
-- HTTP server (Fiber/Echo) with `/` dashboard and `/healthz`.
-- SQLite open + migrations (`config`, `files`, `metadata_cache`, `logs`, `scrape_sources`).
-- Dockerfile (multi-stage, alpine), docker-compose.yml.
+- HTTP server (stdlib `net/http`, Go 1.22+ method/pattern routing — no
+  framework dependency needed yet for two routes) with `/` dashboard and
+  `/healthz`.
+- SQLite open + migrations (`config`, `files`, `metadata_cache`, `logs`, `scrape_sources`),
+  embedded via `go:embed` under `internal/database/migrations/`.
+- Dockerfile (multi-stage, alpine, non-root UID 1000), docker-compose.yml.
 
-**Verify:** `docker compose up`, open `:8080`, see dashboard; `/healthz` returns 200; DB file created under `/config`.
+**Verify:** binary built and run locally — `/healthz` returns 200 with
+`{version, uptime_seconds, queue_size}`; dashboard renders; `config.yaml`
+and `happy-sorter.db` created on first run with all 5 tables plus
+`schema_migrations`; log records land in both stdout (JSON) and the `logs`
+table. `go vet` and `gofmt -l` clean. (Docker image build not yet verified
+in this environment — Docker isn't installed on this dev machine; the
+Dockerfile follows the same multi-stage pattern documented in
+`DEPLOYMENT.md` and should be verified on first NAS/Docker deploy.)
 
 ## Milestone 1 — Watcher → filter → review (no scraping)
 
