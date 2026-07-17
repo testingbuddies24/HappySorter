@@ -13,8 +13,9 @@ this README is gitignored — drop whatever test files you like.
 - `library/` — organised output lands here, plus `library/review/_filter/`,
   `library/review/_unmatched/`, `library/review/_duplicate/`.
 - `config/config.yaml` — already configured with real Windows paths into
-  this folder and the `s1` source enabled. Edit priorities/sources here as
-  needed; the running server does not require Docker.
+  this folder and the `s1` and `ideapocket` sources enabled. Edit
+  priorities/sources here as needed; the running server does not require
+  Docker.
 
 ## Running
 

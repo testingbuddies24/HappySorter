@@ -92,9 +92,12 @@ For each non-rubbish video file:
 - Each configured source implements `Lookup(code) (*Metadata, error)`.
 - Sources are tried in user-configured priority order.
 - **Default source order is studio-direct first, aggregators as fallback**
-  (see `research/source-test-results.md`): `s1`, `sodprime`, `ideapocket`,
-  `mgstage`, then `javbus`, `javdb`, `javlibrary`. Studio sites are not
-  Cloudflare-gated and resolve reliably; aggregators cover the long tail.
+  (see `research/source-test-results.md`): `s1`, `ideapocket`, then
+  `javbus`, `javdb`, `javlibrary`. Studio sites are not Cloudflare-gated
+  and resolve reliably; aggregators cover the long tail. (`sodprime` and
+  `mgstage` were probed and dropped in Milestone 4a — both are Japan-only
+  geo-blocked, not Cloudflare-gated, so no proxy fixes them; see
+  `docs/ROADMAP.md`.)
 - A "failure" that triggers fallback: HTTP error, code-not-found, missing required fields (title or cover image), context timeout, Cloudflare challenge on a source with no proxy configured.
 - Per-source rate limit (QPS) configurable; default 1 QPS.
 - **Cloudflare handling:** an optional `proxy_url` (HTTP/SOCKS5 or a

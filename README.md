@@ -53,20 +53,24 @@ See [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) for the full guide (docker-compos
 
 ## Project status
 
-🏗️ **Milestone 3 complete** — the full pipeline runs end-to-end for a
-studio-direct source: files dropped into `/watch` are triaged (rubbish
-filter, JAV code extraction), scraped live from S1 (with metadata caching
-so multi-disc releases skip re-scraping), and organised into a
+🏗️ **Milestone 4a complete** — the pipeline now has two working
+studio-direct sources (S1, IdeaPocket) with real fallback: files dropped
+into `/watch` are triaged (rubbish filter, JAV code extraction), scraped
+live with metadata caching (so multi-disc releases skip re-scraping) and
+priority-ordered fallback across sources, and organised into a
 Jellyfin-recognised `<CODE> (<YEAR>)/` folder with `movie.nfo`,
 `poster.jpg`, `fanart.jpg`, and `backdrop.jpg`. A file that would collide
 with an already-organised release is left alone and routed to
-`review/_duplicate/` instead of being overwritten or auto-renamed.
-Everything is now configurable from the web GUI without editing YAML by
-hand: `/setup/folders`, `/setup/sources`, `/setup/rename`, a `/review`
-queue with retry/delete, `/logs`, and `/rescan`/`/pause`/`/resume`
-controls — folder paths, sources, and rename templates all hot-reload
-without a restart (only the watch path and server port need one). See
-`docs/ROADMAP.md` for what's next (Milestone 4: multi-source fallback).
+`review/_duplicate/` instead of being overwritten or auto-renamed. Files
+queued for scraping while no source was enabled now drain automatically
+the moment a source is turned on — no restart, no manual retry. Everything
+is configurable from the web GUI without editing YAML by hand:
+`/setup/folders`, `/setup/sources`, `/setup/rename`, a `/review` queue
+with retry/delete, `/logs`, and `/rescan`/`/pause`/`/resume` controls —
+folder paths, sources, and rename templates all hot-reload without a
+restart (only the watch path and server port need one). See
+`docs/ROADMAP.md` for what's next (Milestone 4b: aggregator sources +
+proxy infrastructure).
 
 For a hands-on sandbox to run the server yourself and drop test files in,
 see [`testbed/README.md`](testbed/README.md).

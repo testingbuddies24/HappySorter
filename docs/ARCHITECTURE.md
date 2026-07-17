@@ -101,8 +101,10 @@ Three volume mounts:
   and a per-source cookie jar (see § 4.1).
 - Shipped adapters, in default priority order (studio-direct first because
   they are not Cloudflare-gated — see `research/source-test-results.md`):
-  `s1`, `sodprime`, `ideapocket`, `mgstage`, then aggregators `javbus`,
-  `javdb`, `javlibrary`. Others pluggable.
+  `s1`, `ideapocket`, then aggregators `javbus`, `javdb`, `javlibrary`.
+  Others pluggable. (`sodprime` and `mgstage` were probed during Milestone
+  4a and dropped — both are Japan-only geo-blocked, not Cloudflare-gated,
+  so the proxy infra below doesn't help; see `docs/ROADMAP.md` M4a.)
 
 ### 2.7 Organiser
 
@@ -353,29 +355,21 @@ sources:
     enabled: false
     priority: 1
     qps: 1.0
-  - name: sodprime           # studio: SOD — no Cloudflare
+  - name: ideapocket         # studio: Idea Pocket — no Cloudflare
     enabled: false
     priority: 2
     qps: 1.0
-  - name: ideapocket         # studio: Idea Pocket — no Cloudflare
+  - name: javbus             # aggregator — age gate, may need proxy
     enabled: false
     priority: 3
     qps: 1.0
-  - name: mgstage            # distributor — covers many labels
+  - name: javdb              # aggregator — Cloudflare, needs proxy
     enabled: false
     priority: 4
     qps: 1.0
-  - name: javbus             # aggregator — age gate, may need proxy
-    enabled: false
-    priority: 5
-    qps: 1.0
-  - name: javdb              # aggregator — Cloudflare, needs proxy
-    enabled: false
-    priority: 6
-    qps: 1.0
   - name: javlibrary         # aggregator — most aggressive Cloudflare
     enabled: false
-    priority: 7
+    priority: 5
     qps: 0.5
 
 rename:

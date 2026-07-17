@@ -2,6 +2,7 @@ package httpserver
 
 import (
 	"bytes"
+	"context"
 	"html/template"
 	"net/http"
 	"sort"
@@ -144,7 +145,15 @@ func (s *Server) handleSourcesPost(w http.ResponseWriter, r *http.Request) {
 	}
 
 	adapters := registry.BuildAdapters(updated, s.httpClient, s.logger)
-	s.managerStore.Set(scraper.NewManager(s.logger, adapters...))
+	manager := scraper.NewManager(s.logger, adapters...)
+	s.managerStore.Set(manager)
+
+	if !manager.Empty() {
+		// context.Background(), not r.Context(): the request context is
+		// cancelled as soon as this handler returns (below), which would
+		// otherwise kill the scrapes mid-flight.
+		go s.pipeline.DrainQueued(context.Background())
+	}
 
 	redirectFlash(w, r, "/setup/sources", "Saved and applied — no restart needed.", false)
 }
