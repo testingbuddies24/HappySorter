@@ -12,6 +12,7 @@ import (
 
 	"github.com/testingbuddies24/HappySorter/internal/config"
 	"github.com/testingbuddies24/HappySorter/internal/scraper"
+	"github.com/testingbuddies24/HappySorter/internal/scraper/ideapocket"
 	"github.com/testingbuddies24/HappySorter/internal/scraper/s1"
 )
 
@@ -30,6 +31,8 @@ func BuildAdapters(sources []config.SourceConfig, client *http.Client, logger *s
 		switch sc.Name {
 		case "s1":
 			adapters = append(adapters, s1.New(client))
+		case "ideapocket":
+			adapters = append(adapters, ideapocket.New(client))
 		default:
 			logger.Warn("source enabled in config but no adapter implemented yet", "source", sc.Name)
 		}

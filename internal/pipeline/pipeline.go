@@ -54,6 +54,26 @@ func (p *Pipeline) Retry(ctx context.Context, path string) {
 	p.process(ctx, path)
 }
 
+// DrainQueued reprocesses every file sitting in the scrape state — files
+// whose code was extracted but no scraper source was enabled at the time
+// (docs/ROADMAP.md M3 known-gaps: enabling a source later didn't
+// previously drain this queue). Each record is cleared before reprocessing
+// so Seen() doesn't skip it, mirroring the review-retry path.
+func (p *Pipeline) DrainQueued(ctx context.Context) {
+	files, err := p.store.ListByStates(store.StateScrape)
+	if err != nil {
+		p.logger.Error("listing queued files for drain", "error", err)
+		return
+	}
+	for _, rec := range files {
+		if err := p.store.Delete(rec.ID); err != nil {
+			p.logger.Error("clearing queued record before drain", "id", rec.ID, "error", err)
+			continue
+		}
+		p.Retry(ctx, rec.CurrentPath)
+	}
+}
+
 func (p *Pipeline) process(ctx context.Context, path string) {
 	seen, err := p.store.Seen(path)
 	if err != nil {

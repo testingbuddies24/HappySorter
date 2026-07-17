@@ -209,15 +209,73 @@ of this milestone, so it's at least recoverable, just not automatic).
 Also out of scope: files queued in `scrape` state (code extracted, but no
 source enabled yet) have no retry path from `/review`, since that page
 only lists review/failed states — enabling a source later doesn't
-automatically drain that queue. Worth revisiting in a future milestone.
+automatically drain that queue. **Fixed in Milestone 4a** via
+`Pipeline.DrainQueued`.
 
-## Milestone 4 — Multi-source fallback + aggregators
+## Milestone 4a — Studio adapters + scrape-queue drain ✅ done
 
-**Goal:** resilience — one source dying doesn't stop the pipeline.
+**Goal:** a second working source (fallback becomes real, not theoretical)
+plus the M3 known-gap where enabling a source never drained files already
+sitting in `scrape` state.
 
-- Add `sodprime`, `ideapocket`, `mgstage` (studio/distributor adapters).
+- Live-probed all three originally planned no-proxy studio/distributor
+  sources before writing any selector code (`s1.go`'s methodology).
+  **Two of three are not viable without a proxy, contradicting this
+  roadmap's original assumption that studio-direct sources "work from any
+  IP, no proxy":**
+  - `ideapocket.com` — confirmed working, same CMS family as S1 (near-
+    identical selectors; div-based `.th`/`.td` instead of table cells, but
+    the same class-selector queries carry over unchanged). Implemented as
+    `internal/scraper/ideapocket`.
+  - SOD Prime (`ec.sod.co.jp`) — every path returns HTTP 403 regardless of
+    headers/User-Agent; the 403 lives on the nginx front door itself
+    (`/prime/info.php`), not a Cloudflare JS challenge. `ec.sod.co.jp` is
+    DMM-family, and this doc's own DMM/FANZA research already flagged that
+    family as Japan-only geo-blocked — this looks like the same
+    restriction, not a bot-check a proxy-less adapter could work around.
+  - MGStage (`mgstage.com`) — HTTP 403 from CloudFront directly
+    ("Request blocked"), the textbook CloudFront geo-restriction response,
+    not a bot challenge. The `adc=1` age-cookie assumption in the original
+    plan was never the blocker.
+  - Decision: `sodprime`/`mgstage` are **dropped from the roadmap**, not
+    deferred. An M4b-style Cloudflare-bypass proxy doesn't fix a
+    country-level geo-block — that would need a Japan-routed egress
+    specifically, and S1 + IdeaPocket + the M4b aggregators already give
+    solid fallback coverage without it. Removed from
+    `config.Default().Sources` (`internal/config/config.go`) accordingly.
+- `Pipeline.DrainQueued` (`internal/pipeline/pipeline.go`) reprocesses
+  every file in `scrape` state, clearing its stale record first (same
+  pattern as `/review`'s retry) so `Seen()` doesn't block it. Called from
+  `/setup/sources` in a goroutine using `context.Background()` (not the
+  request context, which is cancelled the moment the handler returns) so
+  the Post/Redirect/Get response isn't blocked by live scrapes.
+- `internal/scraper/registry` gained an `ideapocket` case.
+
+**Verify:** ran the built binary against `testbed/`:
+- `go build ./...`, `go vet ./...`, `gofmt -l .` all clean.
+- Dropped `IPZZ-877.mp4` with only `ideapocket` enabled → organised into
+  `IPZZ-877 (2026)/` with a fully-populated NFO (title, plot, runtime,
+  release date, genres, actress, studio) and cover/fanart images.
+- Enabled `s1` + `ideapocket`, dropped `IPX-001.mp4` (not in S1's catalogue)
+  → resolved correctly via `ideapocket` (confirmed by the NFO's `<studio>`
+  tag), proving fallback ordering works.
+- Dropped `ZZZZ-999.mp4` (well-formed, no source has it) with both sources
+  enabled → routed to `review/_unmatched/` with reason `all sources failed
+  for code ZZZZ-999`.
+- Disabled all sources, dropped `IPZZ-878.mp4` → sat in `scrape` state in
+  `watch/`. Re-enabled `ideapocket` via `/setup/sources` → the file was
+  picked up and reprocessed automatically within seconds, no restart, no
+  manual `/review` retry — the M3 known-gap is closed.
+
+## Milestone 4b — Proxy/cookie infra + aggregators (planned)
+
+**Goal:** resilience via the Cloudflare-gated aggregators, now that M4a
+proved the fallback mechanics work end-to-end on a real second source.
+
 - Add aggregators `javbus` (age-cookie), `javdb`, `javlibrary` (proxy-gated).
-- Fallback ordering, skip-with-reason logging, cookie persistence under `cookies_dir`.
+- Proxy transport (standard + CF-Worker-style URL forwarding) and cookie
+  persistence under `cookies_dir`; capability-based `Cloudflare-gated,
+  skipping` logging in the `Manager`; GUI proxy-URL field.
 - `deploy/cf-worker/worker.js` + docs wiring (referenced by DEPLOYMENT § 4a).
 
 **Verify:** disable S1, enable JavBus → same code resolves via fallback;
@@ -239,9 +297,9 @@ success criteria in `SPEC.md § 7` all pass.
 ## Dependency order
 
 ```
-M0 ──▶ M1 ──▶ M2 ──▶ M3 ──▶ M4 ──▶ M5
-skeleton  triage  1 scraper  GUI    fallback  release
-                  +organise         +aggregators
+M0 ──▶ M1 ──▶ M2 ──▶ M3 ──▶ M4a ──▶ M4b ──▶ M5
+skeleton  triage  1 scraper  GUI    2nd source  aggregators  release
+                  +organise         +queue drain +proxy infra
 ```
 
 Each milestone is a mergeable PR. M2 is the "does the core idea work" proof

@@ -76,12 +76,10 @@ func Default() *Config {
 		},
 		Sources: []SourceConfig{
 			{Name: "s1", Enabled: false, Priority: 1, QPS: 1.0},
-			{Name: "sodprime", Enabled: false, Priority: 2, QPS: 1.0},
-			{Name: "ideapocket", Enabled: false, Priority: 3, QPS: 1.0},
-			{Name: "mgstage", Enabled: false, Priority: 4, QPS: 1.0},
-			{Name: "javbus", Enabled: false, Priority: 5, QPS: 1.0},
-			{Name: "javdb", Enabled: false, Priority: 6, QPS: 1.0},
-			{Name: "javlibrary", Enabled: false, Priority: 7, QPS: 0.5},
+			{Name: "ideapocket", Enabled: false, Priority: 2, QPS: 1.0},
+			{Name: "javbus", Enabled: false, Priority: 3, QPS: 1.0},
+			{Name: "javdb", Enabled: false, Priority: 4, QPS: 1.0},
+			{Name: "javlibrary", Enabled: false, Priority: 5, QPS: 0.5},
 		},
 		Rename: RenameConfig{
 			FolderTemplate:     "{code} ({year})",

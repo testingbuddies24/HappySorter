@@ -71,7 +71,7 @@ docker compose logs -f happy-sorter
 1. Open `http://<nas-ip>:8080` → Status dashboard.
 2. Go to **Setup → Folders** → confirm `/watch`, `/library`, `/library/review/_filter`, `/library/review/_unmatched`, `/library/review/_duplicate`. Save.
 3. Go to **Setup → Sources** → enable at least one scrape source, set its priority (1 = tried first). Save.
-   - Start with the **studio-direct sources** (`s1`, `sodprime`, `ideapocket`, `mgstage`) — they work from any IP with no proxy.
+   - Start with the **studio-direct sources** (`s1`, `ideapocket`) — they work from any IP with no proxy.
    - The **aggregators** (`javbus`, `javdb`, `javlibrary`) sit behind Cloudflare. Try them directly first; if the logs show `Cloudflare-gated`, set a proxy (§ 4a).
 4. (Optional) Go to **Setup → Rename** → tweak folder/file templates. Save.
 5. Drop a test file (e.g. `SSIS-001.mp4`) into the `/watch` folder.
