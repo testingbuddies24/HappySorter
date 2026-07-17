@@ -19,16 +19,16 @@ import (
 )
 
 type Pipeline struct {
-	cfg       *config.Config
-	store     *store.FileStore
-	metaStore *store.MetadataStore
-	manager   *scraper.Manager
-	organiser *organiser.Organiser
-	logger    *slog.Logger
+	cfgStore     *config.Store
+	store        *store.FileStore
+	metaStore    *store.MetadataStore
+	managerStore *scraper.ManagerStore
+	organiser    *organiser.Organiser
+	logger       *slog.Logger
 }
 
-func New(cfg *config.Config, st *store.FileStore, metaStore *store.MetadataStore, manager *scraper.Manager, org *organiser.Organiser, logger *slog.Logger) *Pipeline {
-	return &Pipeline{cfg: cfg, store: st, metaStore: metaStore, manager: manager, organiser: org, logger: logger}
+func New(cfgStore *config.Store, st *store.FileStore, metaStore *store.MetadataStore, managerStore *scraper.ManagerStore, org *organiser.Organiser, logger *slog.Logger) *Pipeline {
+	return &Pipeline{cfgStore: cfgStore, store: st, metaStore: metaStore, managerStore: managerStore, organiser: org, logger: logger}
 }
 
 // Run consumes file paths from events until ctx is cancelled or events closes.
@@ -44,6 +44,14 @@ func (p *Pipeline) Run(ctx context.Context, events <-chan string) {
 			p.process(ctx, path)
 		}
 	}
+}
+
+// Retry re-runs the pipeline against a file sitting in a review folder —
+// e.g. after the user has manually renamed it to inject a valid code. It
+// treats the file's current on-disk path as a fresh path to process, so it
+// is not skipped by the Seen() de-dup check that guards the original path.
+func (p *Pipeline) Retry(ctx context.Context, path string) {
+	p.process(ctx, path)
 }
 
 func (p *Pipeline) process(ctx context.Context, path string) {
@@ -67,18 +75,21 @@ func (p *Pipeline) process(ctx context.Context, path string) {
 		return
 	}
 
+	cfg := p.cfgStore.Get()
+
 	if res := Filter(path, info.Size()); !res.Accepted {
-		p.route(path, p.cfg.Paths.ReviewFilter, store.StateReviewFilter, "", res.Reason)
+		p.route(path, cfg.Paths.ReviewFilter, store.StateReviewFilter, "", res.Reason)
 		return
 	}
 
 	code, ok := ExtractCode(path)
 	if !ok {
-		p.route(path, p.cfg.Paths.ReviewUnmatched, store.StateReviewUnmatched, "", "no JAV code found in filename")
+		p.route(path, cfg.Paths.ReviewUnmatched, store.StateReviewUnmatched, "", "no JAV code found in filename")
 		return
 	}
 
-	if p.manager.Empty() {
+	manager := p.managerStore.Get()
+	if manager.Empty() {
 		p.logger.Info("code extracted, queued for scrape", "path", path, "code", code)
 		if err := p.store.Record(path, path, store.StateScrape, code, ""); err != nil {
 			p.logger.Error("recording extracted file", "path", path, "error", err)
@@ -86,9 +97,9 @@ func (p *Pipeline) process(ctx context.Context, path string) {
 		return
 	}
 
-	meta, err := p.lookupMetadata(ctx, code)
+	meta, err := p.lookupMetadata(ctx, manager, code)
 	if err != nil {
-		p.route(path, p.cfg.Paths.ReviewUnmatched, store.StateFailed, code, err.Error())
+		p.route(path, cfg.Paths.ReviewUnmatched, store.StateFailed, code, err.Error())
 		return
 	}
 
@@ -97,11 +108,11 @@ func (p *Pipeline) process(ctx context.Context, path string) {
 		var dupErr *organiser.DuplicateError
 		if errors.As(err, &dupErr) {
 			p.logger.Warn("duplicate file, routing for manual review", "path", path, "code", code, "existing", dupErr.ExistingPath)
-			p.route(path, p.cfg.Paths.ReviewDuplicate, store.StateReviewDuplicate, code, err.Error())
+			p.route(path, cfg.Paths.ReviewDuplicate, store.StateReviewDuplicate, code, err.Error())
 			return
 		}
 		p.logger.Error("organising file", "path", path, "code", code, "error", err)
-		p.route(path, p.cfg.Paths.ReviewUnmatched, store.StateFailed, code, "organise failed: "+err.Error())
+		p.route(path, cfg.Paths.ReviewUnmatched, store.StateFailed, code, "organise failed: "+err.Error())
 		return
 	}
 
@@ -116,7 +127,7 @@ func (p *Pipeline) process(ctx context.Context, path string) {
 
 // lookupMetadata returns cached metadata for code if present (skipping a
 // re-scrape for multi-disc releases), otherwise tries the scrape manager.
-func (p *Pipeline) lookupMetadata(ctx context.Context, code string) (*scraper.Metadata, error) {
+func (p *Pipeline) lookupMetadata(ctx context.Context, manager *scraper.Manager, code string) (*scraper.Metadata, error) {
 	if cached, found, err := p.metaStore.Get(code); err != nil {
 		p.logger.Error("reading metadata cache", "code", code, "error", err)
 	} else if found {
@@ -124,7 +135,7 @@ func (p *Pipeline) lookupMetadata(ctx context.Context, code string) (*scraper.Me
 		return cached, nil
 	}
 
-	meta, err := p.manager.Lookup(ctx, code)
+	meta, err := manager.Lookup(ctx, code)
 	if err != nil {
 		return nil, fmt.Errorf("scrape failed: %w", err)
 	}

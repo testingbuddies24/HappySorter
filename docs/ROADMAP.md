@@ -142,16 +142,74 @@ folder (see `testbed/README.md`) rather than a throwaway scratch dir:
   byte-for-byte unchanged (same size/mtime/checksum) after the collision.
 - `go build`, `go vet`, `gofmt -l` all clean.
 
-## Milestone 3 — Setup GUI (folders, sources, rename)
+## Milestone 3 — Setup GUI (folders, sources, rename) ✅ done
 
 **Goal:** everything configurable without editing YAML by hand.
 
-- HTMX pages: `/setup/folders`, `/setup/sources` (enable/reorder/QPS + `proxy_url`), `/setup/rename`.
-- `/review` list with retry/delete actions; `/rescan`, `/pause`, `/resume`.
-- Config writes persisted to `config.yaml` + hot-reload where safe.
+- Plain HTML forms (stdlib `net/http` + `html/template`, Post/Redirect/Get
+  with query-param flash messages) instead of HTMX — avoids an external
+  CDN/vendored-JS dependency for a self-hosted NAS tool with uncertain
+  internet access; no functional requirement below needs JS.
+- `/setup/folders`, `/setup/sources` (enable/priority/QPS per source),
+  `/setup/rename` (folder/file templates + unknown-year placeholder).
+- `/review` list, grouped by `review_filter` / `review_unmatched` /
+  `review_duplicate` / `failed`, with retry/delete actions per row and a
+  bulk `/review/empty`.
+- `/rescan`, `/pause`, `/resume` controls; dashboard shows per-state counts,
+  paused/running status, and recent activity.
+- `/logs` viewer (level filter + limit) backed by the existing `logs` table.
+- Config writes persist to `config.yaml` and hot-reload without a restart:
+  `config.Store` (copy-on-write, `internal/config/store.go`) is now read
+  fresh by the organiser and pipeline on every call instead of being
+  captured once at startup; `scraper.ManagerStore`
+  (`internal/scraper/store.go`) lets `/setup/sources` rebuild the adapter
+  list live. Only the `watch` path and server port still require a restart
+  (flagged with a warning banner when changed via the GUI).
+- `Watcher` gained `Pause()`/`Resume()`/`Rescan()`, backing the dashboard
+  controls; `Pipeline.Retry()` lets `/review`'s retry button reprocess a
+  file from its current on-disk path, bypassing the original path's
+  `Seen()` record.
+- New `internal/scraper/registry` package (`BuildAdapters`) factors the
+  name→adapter switch out of `cmd/server/main.go` so both it and
+  `internal/httpserver` can build a `*scraper.Manager` without an import
+  cycle (adapter subpackages import `scraper`, so the registry can't live
+  inside `scraper` itself).
 
-**Verify:** change folders + enable a source in the GUI, drop a file, confirm
-it flows using the new config; retry an item from `/review`.
+**Verify:** ran the built binary against `testbed/` (see `testbed/README.md`):
+- Dashboard, `/setup/folders`, `/setup/sources`, `/setup/rename`, `/review`,
+  `/logs` all render 200 with real data (`/setup/sources` correctly showed
+  `s1` pre-checked from `testbed/config/config.yaml`).
+- Dropped `SSIS-777.mp4` (60MB) with `s1` enabled → scraped live, organised
+  into `SSIS-777 (2023)/`, showed up in the dashboard's recent activity and
+  the `Organised` count.
+- Dropped a same-code file that got briefly misclassified as filtered
+  (a pre-existing fsnotify create-before-write race, not a Milestone 3
+  bug — see below) → used `/review`'s **Retry** button, which reprocessed
+  it from its review-folder path and correctly re-routed it to
+  `review_duplicate` this time, with the collision reason recorded. Then
+  used **Delete**, which removed the file from disk and its row.
+- **Pause** → dropped a file → it sat untouched in `watch/` (`queue_size`
+  didn't change). **Resume** → its auto-triggered rescan picked the file up
+  and processed it immediately, no restart needed.
+- Disabled `s1` via `/setup/sources` (unchecked the box, submitted) →
+  `config.yaml` updated (`enabled: false`) and the live `ManagerStore` was
+  rebuilt in the same request — a file dropped immediately after correctly
+  queued in `scrape` state (no network call) instead of trying `s1`, proving
+  the config change applied without a restart. Re-enabled `s1` the same way
+  to restore the testbed's default state.
+- `go build`, `go vet`, `gofmt -l` all clean.
+
+Not fixed in this milestone (pre-existing, identified during testing, out
+of scope for the GUI work): a slow/racy file write into `/watch` can have
+its `Create` event fire before the file is fully sized, so the rubbish
+filter misclassifies a good file as empty; because `Seen()` blocks
+reprocessing of any previously-recorded path, this is a permanent
+misclassification without a manual `/review` retry (which now exists as
+of this milestone, so it's at least recoverable, just not automatic).
+Also out of scope: files queued in `scrape` state (code extracted, but no
+source enabled yet) have no retry path from `/review`, since that page
+only lists review/failed states — enabling a source later doesn't
+automatically drain that queue. Worth revisiting in a future milestone.
 
 ## Milestone 4 — Multi-source fallback + aggregators
 

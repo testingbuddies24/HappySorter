@@ -25,13 +25,15 @@ import (
 )
 
 type Organiser struct {
-	libraryRoot string
-	rename      config.RenameConfig
-	client      *http.Client
+	cfgStore *config.Store
+	client   *http.Client
 }
 
-func New(libraryRoot string, rename config.RenameConfig, client *http.Client) *Organiser {
-	return &Organiser{libraryRoot: libraryRoot, rename: rename, client: client}
+// New builds an Organiser that reads the library path and rename templates
+// fresh from cfgStore on every call, so GUI edits to either take effect
+// without a restart.
+func New(cfgStore *config.Store, client *http.Client) *Organiser {
+	return &Organiser{cfgStore: cfgStore, client: client}
 }
 
 // DuplicateError is returned by Organise when a file already sits at the
@@ -49,8 +51,9 @@ func (e *DuplicateError) Error() string {
 // Organise moves videoPath into the release folder for m and writes its
 // poster/fanart/NFO alongside it. Returns the video's final path.
 func (o *Organiser) Organise(ctx context.Context, m *scraper.Metadata, videoPath string) (string, error) {
-	dir := filepath.Join(o.libraryRoot, o.renderName(o.rename.FolderTemplate, m))
-	fileName := o.renderName(o.rename.FileTemplate, m) + strings.ToLower(filepath.Ext(videoPath))
+	cfg := o.cfgStore.Get()
+	dir := filepath.Join(cfg.Paths.Library, o.renderName(cfg.Rename, cfg.Rename.FolderTemplate, m))
+	fileName := o.renderName(cfg.Rename, cfg.Rename.FileTemplate, m) + strings.ToLower(filepath.Ext(videoPath))
 	dest := filepath.Join(dir, fileName)
 
 	if _, err := os.Stat(dest); err == nil {
@@ -86,8 +89,8 @@ func (o *Organiser) Organise(ctx context.Context, m *scraper.Metadata, videoPath
 	return dest, nil
 }
 
-func (o *Organiser) renderName(template string, m *scraper.Metadata) string {
-	year := o.rename.UnknownPlaceholder
+func (o *Organiser) renderName(rename config.RenameConfig, template string, m *scraper.Metadata) string {
+	year := rename.UnknownPlaceholder
 	if m.Year > 0 {
 		year = strconv.Itoa(m.Year)
 	}
