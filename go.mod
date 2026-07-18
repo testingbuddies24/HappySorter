@@ -1,6 +1,6 @@
 module github.com/testingbuddies24/HappySorter
 
-go 1.26.5
+go 1.25.0
 
 require (
 	github.com/PuerkitoBio/goquery v1.12.0
