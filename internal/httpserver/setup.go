@@ -16,69 +16,51 @@ import (
 // ---- /setup/folders ----
 
 var foldersTmpl = template.Must(template.New("folders").Parse(`
-<form method="post" action="/setup/folders">
-  <fieldset>
-    <legend>Folders</legend>
-    <label for="watch">Watch folder</label>
-    <input type="text" id="watch" name="watch" value="{{.Watch}}">
-    <small class="hint">Changing this requires a container/process restart to take effect.</small>
+<p class="hint">
+  <strong>These paths are set by docker-compose</strong> (the bind-mounts under
+  <code>/watch</code>, <code>/library</code>, and
+  <code>/library/review/...</code>). Edit <code>docker-compose.yml</code> and
+  restart the container to change them — values shown below are
+  informational only.
+</p>
 
-    <label for="library">Library folder</label>
-    <input type="text" id="library" name="library" value="{{.Library}}">
+<dl>
+  <dt>Watch folder</dt>
+  <dd><code>{{.Watch}}</code></dd>
 
-    <label for="review_filter">Review: filtered</label>
-    <input type="text" id="review_filter" name="review_filter" value="{{.ReviewFilter}}">
+  <dt>Library folder</dt>
+  <dd><code>{{.Library}}</code></dd>
 
-    <label for="review_unmatched">Review: unmatched</label>
-    <input type="text" id="review_unmatched" name="review_unmatched" value="{{.ReviewUnmatched}}">
+  <dt>Review: filtered</dt>
+  <dd><code>{{.ReviewFilter}}</code></dd>
 
-    <label for="review_duplicate">Review: duplicate</label>
-    <input type="text" id="review_duplicate" name="review_duplicate" value="{{.ReviewDuplicate}}">
+  <dt>Review: unmatched</dt>
+  <dd><code>{{.ReviewUnmatched}}</code></dd>
 
-    <button type="submit">Save</button>
-  </fieldset>
-</form>
+  <dt>Review: duplicate</dt>
+  <dd><code>{{.ReviewDuplicate}}</code></dd>
+</dl>
 `))
 
 func (s *Server) handleFoldersGet(w http.ResponseWriter, r *http.Request) {
 	cfg := s.cfgStore.Get()
 	var buf bytes.Buffer
 	if err := foldersTmpl.Execute(&buf, cfg.Paths); err != nil {
-		s.logger.Error("rendering folders form", "error", err)
+		s.logger.Error("rendering folders view", "error", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
 	s.render(w, r, "Folders", template.HTML(buf.String()))
 }
 
+// handleFoldersPost is intentionally a no-op: folder paths are owned by
+// docker-compose, not the GUI. POSTing to /setup/folders is ignored
+// (with a redirect flash) so any old bookmark/automation against the URL
+// still resolves gracefully.
 func (s *Server) handleFoldersPost(w http.ResponseWriter, r *http.Request) {
-	if err := r.ParseForm(); err != nil {
-		http.Error(w, "bad form", http.StatusBadRequest)
-		return
-	}
-
-	watchChanged := false
-	err := s.cfgStore.Update(func(next *config.Config) {
-		if r.FormValue("watch") != next.Paths.Watch {
-			watchChanged = true
-		}
-		next.Paths.Watch = r.FormValue("watch")
-		next.Paths.Library = r.FormValue("library")
-		next.Paths.ReviewFilter = r.FormValue("review_filter")
-		next.Paths.ReviewUnmatched = r.FormValue("review_unmatched")
-		next.Paths.ReviewDuplicate = r.FormValue("review_duplicate")
-	})
-	if err != nil {
-		s.logger.Error("saving folders config", "error", err)
-		redirectFlash(w, r, "/setup/folders", "Failed to save: "+err.Error(), true)
-		return
-	}
-
-	if watchChanged {
-		redirectFlash(w, r, "/setup/folders", "Saved. The watch folder change needs a restart to take effect.", true)
-		return
-	}
-	redirectFlash(w, r, "/setup/folders", "Saved.", false)
+	redirectFlash(w, r, "/setup/folders",
+		"Folder paths are set by docker-compose, not the GUI. Edit docker-compose.yml and restart the container.",
+		true)
 }
 
 // ---- /setup/sources ----
