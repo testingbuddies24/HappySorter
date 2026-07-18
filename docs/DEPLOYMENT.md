@@ -70,13 +70,13 @@ docker compose logs -f happy-sorter
 ## 4. First-run setup (web GUI)
 
 1. Open `http://<nas-ip>:8080` → Status dashboard.
-2. Go to **Setup → Folders** → confirm `/watch`, `/library`, `/library/review/_filter`, `/library/review/_unmatched`, `/library/review/_duplicate`. Save.
+2. Go to **Setup → Folders** → confirm the paths shown match your mounts (`/watch`, `/library`, `/library/review/...`). This page is read-only — the paths are set by the docker-compose bind mounts, so changing them means editing `docker-compose.yml` and restarting the container.
 3. Go to **Setup → Sources** → enable at least one scrape source, set its priority (1 = tried first). Save.
    - Start with the **studio-direct sources** (`s1`, `ideapocket`) — they work from any IP with no proxy.
    - The **aggregators** `javbus` and `javdb` also work from any IP with no proxy — despite the name, `§ 4a` below is not needed for either of them. `javlibrary` is listed in config but has no adapter yet (still blocked on a genuine Cloudflare challenge; see `docs/ROADMAP.md` M4b).
 4. (Optional) Go to **Setup → Rename** → tweak folder/file templates. Save.
 5. Drop a test file (e.g. `SSIS-001.mp4`) into the `/watch` folder.
-6. Watch the dashboard — within ~30 s the file should be in `/library/SSIS-001 (2018)/` with cover, fanart, nfo.
+6. Watch the dashboard — the file should land in `/library/SSIS-001 (2018)/` with cover, fanart, nfo. Small local drops appear within seconds; a large file copied over the network is deliberately left alone until it stops growing, then picked up by the next scan — allow up to ~90 s after the copy finishes.
 
 If nothing happens, check **Logs** in the GUI.
 
@@ -198,6 +198,7 @@ image: ghcr.io/testingbuddies24/happy-sorter:1.0.0
 |----------------------------------------|---------------------------------------------|-----|
 | GUI doesn't load                       | Port 8080 blocked; wrong NAS IP             | Check `docker ps`, NAS firewall |
 | Files dropped, nothing happens         | Watcher paused; source not enabled          | Resume in dashboard; enable source in Setup → Sources |
+| File takes a minute+ to be picked up   | It was still copying — HappySorter waits until a file stops changing before touching it | Normal; it's processed by the next scan after the copy finishes |
 | All files end up in `review/_unmatched/` | Source site is down; code regex too strict | Check Logs; try a different source |
 | File ends up in `review/_duplicate/`   | A release for that code already exists in the library | Compare the two files by hand, then delete one; the existing library release was left untouched |
 | Logs show `Cloudflare-gated`            | Only relevant once `javlibrary` ships (not yet implemented) | Enable a studio source, or set a proxy (§ 4a) |

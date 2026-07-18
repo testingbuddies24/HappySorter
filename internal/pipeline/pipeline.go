@@ -10,6 +10,8 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"sync"
+	"time"
 
 	"github.com/testingbuddies24/HappySorter/internal/config"
 	"github.com/testingbuddies24/HappySorter/internal/fsutil"
@@ -18,6 +20,19 @@ import (
 	"github.com/testingbuddies24/HappySorter/internal/store"
 )
 
+// settleWindow is how long a file must go unmodified before the pipeline
+// will touch it. Files arriving over SMB/NFS are written incrementally for
+// minutes; acting on one mid-copy would junk-route it on a partial size or
+// organise a truncated video — and MoveFile's cross-mount copy+delete
+// fallback would delete the source out from under the writer.
+const settleWindow = 5 * time.Second
+
+// unstableTTL is how long a path found mid-write is skipped outright before
+// being re-checked, so a flood of fsnotify Write events during a long copy
+// doesn't cost a settleWindow sleep each. Kept well under the watcher's 60s
+// poll so a finished copy is picked up by the next poll after settling.
+const unstableTTL = 20 * time.Second
+
 type Pipeline struct {
 	cfgStore     *config.Store
 	store        *store.FileStore
@@ -25,10 +40,13 @@ type Pipeline struct {
 	managerStore *scraper.ManagerStore
 	organiser    *organiser.Organiser
 	logger       *slog.Logger
+
+	mu       sync.Mutex
+	unstable map[string]time.Time // path -> when it was last seen mid-write
 }
 
 func New(cfgStore *config.Store, st *store.FileStore, metaStore *store.MetadataStore, managerStore *scraper.ManagerStore, org *organiser.Organiser, logger *slog.Logger) *Pipeline {
-	return &Pipeline{cfgStore: cfgStore, store: st, metaStore: metaStore, managerStore: managerStore, organiser: org, logger: logger}
+	return &Pipeline{cfgStore: cfgStore, store: st, metaStore: metaStore, managerStore: managerStore, organiser: org, logger: logger, unstable: make(map[string]time.Time)}
 }
 
 // Run consumes file paths from events until ctx is cancelled or events closes.
@@ -95,6 +113,17 @@ func (p *Pipeline) process(ctx context.Context, path string) {
 		return
 	}
 
+	if p.recentlyUnstable(path) {
+		return
+	}
+	settled, ok := waitForSettle(path, info, settleWindow)
+	if !ok {
+		p.markUnstable(path)
+		p.logger.Info("file still being written, leaving it alone until it settles", "path", path)
+		return
+	}
+	info = settled
+
 	cfg := p.cfgStore.Get()
 
 	if res := Filter(path, info.Size()); !res.Accepted {
@@ -160,6 +189,56 @@ func (p *Pipeline) lookupMetadata(ctx context.Context, manager *scraper.Manager,
 		return nil, fmt.Errorf("scrape failed: %w", err)
 	}
 	return meta, nil
+}
+
+// waitForSettle reports whether path has gone window without modification,
+// sleeping (at most window) when the file is too fresh to tell yet. It
+// returns the freshest FileInfo on success; ok=false means the file is
+// still being written and the caller should skip it — the watcher's next
+// poll re-emits the path, so nothing is lost by skipping.
+func waitForSettle(path string, info os.FileInfo, window time.Duration) (os.FileInfo, bool) {
+	age := time.Since(info.ModTime())
+	if age >= window {
+		return info, true
+	}
+
+	// Cap the sleep at window: a modest negative age just means the file
+	// server's clock is slightly ahead of ours (common with SMB mounts).
+	sleep := window - age
+	if sleep > window {
+		sleep = window
+	}
+	time.Sleep(sleep)
+
+	latest, err := os.Stat(path)
+	if err != nil {
+		return nil, false // vanished mid-wait
+	}
+	if latest.Size() != info.Size() || !latest.ModTime().Equal(info.ModTime()) {
+		return nil, false
+	}
+	return latest, true
+}
+
+// recentlyUnstable reports whether path was found mid-write within the last
+// unstableTTL, letting the event-flood from a long copy short-circuit
+// without paying waitForSettle's sleep every time.
+func (p *Pipeline) recentlyUnstable(path string) bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	seen, ok := p.unstable[path]
+	return ok && time.Since(seen) < unstableTTL
+}
+
+func (p *Pipeline) markUnstable(path string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	for k, v := range p.unstable {
+		if time.Since(v) >= unstableTTL {
+			delete(p.unstable, k)
+		}
+	}
+	p.unstable[path] = time.Now()
 }
 
 // route moves a rejected file into a review folder and records its outcome.
