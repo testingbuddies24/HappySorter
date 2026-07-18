@@ -4,6 +4,7 @@ package watcher
 
 import (
 	"context"
+	"fmt"
 	"io/fs"
 	"log/slog"
 	"os"
@@ -19,7 +20,14 @@ const pollInterval = 60 * time.Second
 // Watcher emits paths of files found under root: an initial full scan on
 // startup (catches anything dropped while offline), a recursive fsnotify
 // watch for near-instant detection, and a periodic poll as a safety net for
-// filesystems (NFS/SMB) that don't reliably deliver inotify events.
+// filesystems (NFS/SMB, Synology ACL-protected shares, etc.) that don't
+// reliably deliver inotify events.
+//
+// The polling ticker ALWAYS runs regardless of fsnotify setup success —
+// inotify is best-effort. fsnotify may partially fail (e.g. one ACL-locked
+// dir under root), but a single denied dir no longer takes down the whole
+// watcher: setup is best-effort per-directory and the poll catches what
+// inotify misses.
 //
 // Emitting the same path more than once is expected and safe — the
 // pipeline consuming Events() de-duplicates against the `files` table.
@@ -77,18 +85,19 @@ func (w *Watcher) Run(ctx context.Context) {
 
 	w.scan()
 
-	fsw, err := fsnotify.NewWatcher()
-	if err != nil {
-		w.logger.Warn("fsnotify unavailable, falling back to polling only", "error", err)
-		w.pollLoop(ctx)
-		return
+	// inotify setup is best-effort: a single ACL-protected or otherwise
+	// inaccessible directory under root shouldn't take down the whole
+	// watcher. The poll ticker below always runs.
+	fsw, fswErr := fsnotify.NewWatcher()
+	if fswErr != nil {
+		w.logger.Warn("fsnotify unavailable, falling back to polling only", "error", fswErr)
+		fsw = nil
 	}
-	defer fsw.Close()
-
-	if err := w.addRecursive(fsw); err != nil {
-		w.logger.Warn("could not set up fsnotify on watch root, falling back to polling only", "root", w.root, "error", err)
-		w.pollLoop(ctx)
-		return
+	if fsw != nil {
+		defer fsw.Close()
+		if skipped := addRecursive(fsw, w.root); len(skipped) > 0 {
+			w.logger.Warn("some directories skipped by fsnotify (polling still active)", "count", len(skipped), "first", skipped[0])
+		}
 	}
 
 	ticker := time.NewTicker(pollInterval)
@@ -98,16 +107,18 @@ func (w *Watcher) Run(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			return
-		case ev, ok := <-fsw.Events:
+		case ev, ok := <-fswOrNil(fsw):
 			if !ok {
-				return
+				fsw = nil
+				continue
 			}
 			if ev.Has(fsnotify.Create) || ev.Has(fsnotify.Write) {
 				w.emit(ev.Name)
 			}
-		case err, ok := <-fsw.Errors:
+		case err, ok := <-fswOrNilErrors(fsw):
 			if !ok {
-				return
+				fsw = nil
+				continue
 			}
 			w.logger.Error("fsnotify error", "error", err)
 		case <-ticker.C:
@@ -118,31 +129,45 @@ func (w *Watcher) Run(ctx context.Context) {
 	}
 }
 
-func (w *Watcher) pollLoop(ctx context.Context) {
-	ticker := time.NewTicker(pollInterval)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			w.scan()
-		case <-w.rescanCh:
-			w.scan()
-		}
+// fswOrNil safely returns the fsnotify event channel, or a never-valid
+// channel when inotify setup failed or was forcibly torn down mid-run. The
+// receive on a nil channel blocks forever, which is exactly what the
+// select-loop needs.
+func fswOrNil(fsw *fsnotify.Watcher) <-chan fsnotify.Event {
+	if fsw == nil {
+		return nil
 	}
+	return fsw.Events
 }
 
-func (w *Watcher) addRecursive(fsw *fsnotify.Watcher) error {
-	return filepath.WalkDir(w.root, func(path string, d fs.DirEntry, err error) error {
+// fswOrNilErrors mirrors fswOrNil for the error channel.
+func fswOrNilErrors(fsw *fsnotify.Watcher) <-chan error {
+	if fsw == nil {
+		return nil
+	}
+	return fsw.Errors
+}
+
+// addRecursive registers fsnotify on root and every directory beneath it.
+// Per-directory errors (permission-denied, ACL issues on Synology shares,
+// etc.) are collected and returned as a slice — the caller logs them but
+// continues; the polling-driven scan in Run() still picks up new files.
+func addRecursive(fsw *fsnotify.Watcher, root string) []string {
+	var skipped []string
+	_ = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
-			return err
+			skipped = append(skipped, fmt.Sprintf("%s: %v", path, err))
+			return nil //nolint:nilerr // best-effort per-dir; do not abort the walk
 		}
-		if d.IsDir() {
-			return fsw.Add(path)
+		if !d.IsDir() {
+			return nil
+		}
+		if err := fsw.Add(path); err != nil {
+			skipped = append(skipped, fmt.Sprintf("%s: %v", path, err))
 		}
 		return nil
 	})
+	return skipped
 }
 
 func (w *Watcher) scan() {
