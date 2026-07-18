@@ -72,26 +72,27 @@ docker compose logs -f happy-sorter
 2. Go to **Setup → Folders** → confirm `/watch`, `/library`, `/library/review/_filter`, `/library/review/_unmatched`, `/library/review/_duplicate`. Save.
 3. Go to **Setup → Sources** → enable at least one scrape source, set its priority (1 = tried first). Save.
    - Start with the **studio-direct sources** (`s1`, `ideapocket`) — they work from any IP with no proxy.
-   - The **aggregators** (`javbus`, `javdb`, `javlibrary`) sit behind Cloudflare. Try them directly first; if the logs show `Cloudflare-gated`, set a proxy (§ 4a).
+   - The **aggregators** `javbus` and `javdb` also work from any IP with no proxy — despite the name, `§ 4a` below is not needed for either of them. `javlibrary` is listed in config but has no adapter yet (still blocked on a genuine Cloudflare challenge; see `docs/ROADMAP.md` M4b).
 4. (Optional) Go to **Setup → Rename** → tweak folder/file templates. Save.
 5. Drop a test file (e.g. `SSIS-001.mp4`) into the `/watch` folder.
 6. Watch the dashboard — within ~30 s the file should be in `/library/SSIS-001 (2018)/` with cover, fanart, nfo.
 
 If nothing happens, check **Logs** in the GUI.
 
-## 4a. Optional: Cloudflare Worker proxy (for aggregator sources)
+## 4a. Optional: Cloudflare Worker proxy (no shipped source needs this yet)
 
-Studio-direct sources work everywhere and need nothing here. You only need a
-proxy if you enable an aggregator (`javbus`/`javdb`/`javlibrary`) **and** your
-IP gets a Cloudflare challenge (visible in the logs as `Cloudflare-gated`).
+No currently-shipped source needs a proxy: `javbus` and `javdb` both resolve
+directly. This section is here for `javlibrary`, which is genuinely
+Cloudflare-gated but has no adapter yet (`docs/ROADMAP.md` M4b) — set this up
+only once that adapter ships and your IP gets a Cloudflare challenge from it.
 This mirrors the approach used by the widely-used Emby/Jellyfin JavScraper
 plugin. The Cloudflare Worker free tier (100k requests/day) is far more than a
 personal library needs.
 
 1. Sign in at <https://workers.cloudflare.com> and create a Worker.
-2. Paste a small pass-through forwarder (a jsproxy-style Worker that fetches
-   `/<url>` with Cloudflare's own egress IP and returns the response). A
-   ready-to-paste `worker.js` will ship in the repo under `deploy/cf-worker/`.
+2. Paste the pass-through forwarder from `deploy/cf-worker/worker.js` (fetches
+   `?url=<target>` with Cloudflare's own egress IP and returns the response
+   untouched).
 3. Deploy → copy the `https://<name>.<subdomain>.workers.dev` URL.
 4. In HappySorter: **Setup → Sources → Proxy URL**, paste that URL, Save.
    (Equivalent config key: `scraping.proxy_url` in `config.yaml`.)
@@ -99,10 +100,10 @@ personal library needs.
 A standard HTTP or SOCKS5 proxy URL works in the same field if you already
 run one. Leave the field empty to go direct.
 
-> **Note on age gates.** Some aggregators (e.g. JavBus) show an age-consent
-> wall rather than Cloudflare. HappySorter clears these automatically by
-> POSTing the consent once and persisting the cookie under
-> `/config/cookies` — no user action needed.
+> **Note on age gates.** JavBus shows an age-verification redirect, but it
+> turned out to be cosmetic — the redirect response body already has the real
+> page, so HappySorter reads it directly with no consent POST or cookie
+> needed.
 
 ## 5. Folder map (recommended)
 
@@ -198,7 +199,7 @@ image: ghcr.io/<owner>/happy-sorter:1.0.0
 | Files dropped, nothing happens         | Watcher paused; source not enabled          | Resume in dashboard; enable source in Setup → Sources |
 | All files end up in `review/_unmatched/` | Source site is down; code regex too strict | Check Logs; try a different source |
 | File ends up in `review/_duplicate/`   | A release for that code already exists in the library | Compare the two files by hand, then delete one; the existing library release was left untouched |
-| Logs show `Cloudflare-gated`            | Aggregator source challenged your IP        | Enable a studio source, or set a proxy (§ 4a) |
+| Logs show `Cloudflare-gated`            | Only relevant once `javlibrary` ships (not yet implemented) | Enable a studio source, or set a proxy (§ 4a) |
 | Cover image is a placeholder            | Source returned no cover                   | Try another source; manually drop cover into the folder |
 | `permission denied` on `/library`      | UID mismatch between container and NAS      | Set `user: "1000:1000"` in compose and `chown -R 1000:1000 /volume1/data/jav` |
 | Container restarts repeatedly          | Crash in pipeline                           | `docker logs happy-sorter` — share the tail |

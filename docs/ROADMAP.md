@@ -267,20 +267,85 @@ sitting in `scrape` state.
   picked up and reprocessed automatically within seconds, no restart, no
   manual `/review` retry — the M3 known-gap is closed.
 
-## Milestone 4b — Proxy/cookie infra + aggregators (planned)
+## Milestone 4b — Proxy infra + aggregators ✅ done
 
-**Goal:** resilience via the Cloudflare-gated aggregators, now that M4a
-proved the fallback mechanics work end-to-end on a real second source.
+**Goal:** resilience via the aggregator sites, now that M4a proved the
+fallback mechanics work end-to-end on a real second source.
 
-- Add aggregators `javbus` (age-cookie), `javdb`, `javlibrary` (proxy-gated).
-- Proxy transport (standard + CF-Worker-style URL forwarding) and cookie
-  persistence under `cookies_dir`; capability-based `Cloudflare-gated,
-  skipping` logging in the `Manager`; GUI proxy-URL field.
-- `deploy/cf-worker/worker.js` + docs wiring (referenced by DEPLOYMENT § 4a).
+- Live-probed all three planned aggregators before writing any selector
+  code. **Findings changed the milestone's scope twice, each time checked
+  with the user before proceeding:**
+  - `javbus.com` — no proxy or cookie needed. Every request (found or not)
+    gets an HTTP 302 to an age-verification interstitial regardless of
+    cookies sent, but the 302 response body already contains the real page
+    HTML (or a real "404 Page Not Found!" page for a bad code) — the
+    adapter just disables redirect-following and parses whichever body
+    comes back. Implemented as `internal/scraper/javbus`.
+  - `javdb.com` — resolves directly, no Cloudflare challenge and no age
+    gate in this environment, contradicting the original
+    `docs/research/source-test-results.md` assumption that it needed a
+    proxy. Two-request lookup (search page to find the matching result
+    card, then the detail page for the metadata panel). Implemented as
+    `internal/scraper/javdb`.
+  - `javlibrary.com` — genuinely Cloudflare-challenged (`Cf-Mitigated:
+    challenge`, active Turnstile-style JS challenge), and there was no
+    working proxy in this environment to verify real selectors against.
+    **Decision: ship the proxy plumbing this milestone regardless, defer
+    only the adapter itself** — `internal/scraper/registry` has no
+    `javlibrary` case yet; it falls through to the existing "source
+    enabled but no adapter implemented" warning log, ready to add once a
+    proxy is available to probe through.
+  - Net effect: since only `javlibrary` needs it, cookie-persistence
+    machinery (`cookies_dir`) was **not** built — only the `proxy_url`
+    config field, its GUI field, and `deploy/cf-worker/worker.js` shipped,
+    ready for whenever the adapter is added.
+- `internal/scraper/registry` gained `javbus`/`javdb` cases.
+- `/setup/sources` (`internal/httpserver/setup.go`) gained a Proxy URL
+  field, wired to `config.Scraping.ProxyURL`, saved via the same
+  copy-on-write `cfgStore.Update` hot-reload path as every other setting.
+- `deploy/cf-worker/worker.js`: minimal Cloudflare Worker pass-through
+  forwarder — HappySorter calls it as `<worker-url>/?url=<encoded target>`
+  and it fetches the target from Cloudflare's own edge, for whenever a
+  Cloudflare-gated source needs it.
+- Bug found and fixed during E2E verification: `organiser.download()`
+  (`internal/organiser/organiser.go`) sent no `User-Agent`/`Referer` at
+  all, so JavBus's cover-image CDN (hotlink-protected on `Referer`, not
+  just User-Agent) 403'd every download. Fixed by adding both headers,
+  with the `Referer` derived from the image URL's own scheme+host.
+- Two data-correctness bugs found and fixed in `internal/scraper/javbus`
+  during E2E verification:
+  - The release-date parser did `TrimPrefix(text, label+":")`, but `label`
+    (from the `.header` span) already includes the trailing colon in the
+    raw HTML — so the prefix never matched and `<premiered>` ended up
+    holding the raw Chinese-labelled string, with `<year>` never parsed
+    out of it (folder named `SSIS-001 (Unknown)` instead of `(2021)`).
+    Fixed by trimming `label` alone.
+  - The genre selector (`.genre a`) also matched a second, unrelated block
+    of hover-card spans that JavBus reuses the `genre` CSS class for,
+    further down the same info column, wrapping the actress links — so
+    both actress names leaked into `<genre>` on top of their correct
+    `<actor>` entries. Real genre tags are wrapped in a `<label>` (around
+    the tag's own checkbox input); the actress hover-spans aren't. Fixed
+    by scoping to `.genre label a`.
 
-**Verify:** disable S1, enable JavBus → same code resolves via fallback;
-with no proxy, a Cloudflare source logs `Cloudflare-gated` and is skipped
-rather than crashing; with proxy set, it resolves.
+**Verify:** ran the built binary against `testbed/`:
+- `go build ./...`, `go vet ./...`, `gofmt -l .` all clean.
+- Dropped `SSIS-001.mp4` with only `javbus` enabled → organised into
+  `SSIS-001 (2021)/` with a fully-populated NFO (correct title, runtime,
+  `2021-02-18` premiered date, `2021` year, correct 8-entry genre list, no
+  actress-name duplicates, studio, director) and cover/fanart/backdrop
+  images (184.4K each, downloaded successfully past the CDN's
+  Referer-hotlink check).
+- Same code, only `javdb` enabled → resolved independently via a
+  different data source (`2021-02-19` premiered date — a one-day
+  discrepancy between the two sites' own data, not a bug — correct
+  6-entry genre list, no actress duplication, cover/fanart images).
+- Enabled `s1` + `ideapocket` + `javbus` + `javdb` together, dropped
+  `SSIS-001.mp4` again → resolved cleanly with all four adapters wired
+  into the same priority-ordered fallback chain, no crash, correct output.
+- Dropped `ABC-999.mp4` (well-formed, no source has it) with all four
+  sources enabled → every adapter tried and missed, routed to
+  `review/_unmatched/` with reason `all sources failed for code ABC-999`.
 
 ## Milestone 5 — Hardening & release
 
@@ -299,7 +364,7 @@ success criteria in `SPEC.md § 7` all pass.
 ```
 M0 ──▶ M1 ──▶ M2 ──▶ M3 ──▶ M4a ──▶ M4b ──▶ M5
 skeleton  triage  1 scraper  GUI    2nd source  aggregators  release
-                  +organise         +queue drain +proxy infra
+                  +organise         +queue drain +proxy infra (done)
 ```
 
 Each milestone is a mergeable PR. M2 is the "does the core idea work" proof

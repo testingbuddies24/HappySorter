@@ -53,10 +53,11 @@ See [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) for the full guide (docker-compos
 
 ## Project status
 
-🏗️ **Milestone 4a complete** — the pipeline now has two working
-studio-direct sources (S1, IdeaPocket) with real fallback: files dropped
-into `/watch` are triaged (rubbish filter, JAV code extraction), scraped
-live with metadata caching (so multi-disc releases skip re-scraping) and
+🏗️ **Milestone 4b complete** — the pipeline now has four working sources:
+two studio-direct (S1, IdeaPocket) and two aggregators (JavBus, JavDB),
+tried in priority order with real fallback. Files dropped into `/watch`
+are triaged (rubbish filter, JAV code extraction), scraped live with
+metadata caching (so multi-disc releases skip re-scraping) and
 priority-ordered fallback across sources, and organised into a
 Jellyfin-recognised `<CODE> (<YEAR>)/` folder with `movie.nfo`,
 `poster.jpg`, `fanart.jpg`, and `backdrop.jpg`. A file that would collide
@@ -65,12 +66,14 @@ with an already-organised release is left alone and routed to
 queued for scraping while no source was enabled now drain automatically
 the moment a source is turned on — no restart, no manual retry. Everything
 is configurable from the web GUI without editing YAML by hand:
-`/setup/folders`, `/setup/sources`, `/setup/rename`, a `/review` queue
-with retry/delete, `/logs`, and `/rescan`/`/pause`/`/resume` controls —
-folder paths, sources, and rename templates all hot-reload without a
-restart (only the watch path and server port need one). See
-`docs/ROADMAP.md` for what's next (Milestone 4b: aggregator sources +
-proxy infrastructure).
+`/setup/folders`, `/setup/sources` (including a proxy URL field for
+Cloudflare-gated sources), `/setup/rename`, a `/review` queue with
+retry/delete, `/logs`, and `/rescan`/`/pause`/`/resume` controls — folder
+paths, sources, and rename templates all hot-reload without a restart
+(only the watch path and server port need one). See `docs/ROADMAP.md` for
+what's next (Milestone 5: hardening & release — a third aggregator,
+JavLibrary, remains deferred behind a genuine Cloudflare challenge until
+a working proxy is available to verify selectors against).
 
 For a hands-on sandbox to run the server yourself and drop test files in,
 see [`testbed/README.md`](testbed/README.md).

@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -98,10 +99,16 @@ func (o *Organiser) renderName(rename config.RenameConfig, template string, m *s
 	return r.Replace(template)
 }
 
-func (o *Organiser) download(ctx context.Context, url, dest string) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+func (o *Organiser) download(ctx context.Context, imgURL, dest string) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, imgURL, nil)
 	if err != nil {
 		return err
+	}
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36")
+	// Some image CDNs (e.g. JavBus) hotlink-protect on Referer; a same-origin
+	// referer satisfies that check without needing the exact source page.
+	if parsed, err := url.Parse(imgURL); err == nil {
+		req.Header.Set("Referer", parsed.Scheme+"://"+parsed.Host+"/")
 	}
 
 	resp, err := o.client.Do(req)
@@ -110,7 +117,7 @@ func (o *Organiser) download(ctx context.Context, url, dest string) error {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("unexpected status %d fetching %s", resp.StatusCode, url)
+		return fmt.Errorf("unexpected status %d fetching %s", resp.StatusCode, imgURL)
 	}
 
 	f, err := os.Create(dest)
