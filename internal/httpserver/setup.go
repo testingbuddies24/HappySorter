@@ -89,7 +89,7 @@ var sourcesTmpl = template.Must(template.New("sources").Parse(`
     <legend>Sources (tried in priority order, lowest first, until one succeeds)</legend>
     <table>
       <tr><th>Enabled</th><th>Name</th><th>Priority</th><th>QPS</th></tr>
-      {{range .}}
+      {{range .Sources}}
       <tr>
         <td><input type="checkbox" name="enabled_{{.Name}}" {{if .Enabled}}checked{{end}}></td>
         <td>{{.Name}}</td>
@@ -98,10 +98,20 @@ var sourcesTmpl = template.Must(template.New("sources").Parse(`
       </tr>
       {{end}}
     </table>
+
+    <label for="proxy_url">Proxy URL</label>
+    <input type="text" id="proxy_url" name="proxy_url" value="{{.ProxyURL}}" placeholder="http://host:port or https://<worker>.workers.dev">
+    <small class="hint">Only needed for Cloudflare-gated sources. Studio-direct sources (s1, ideapocket) and javbus/javdb work without one. Leave empty to go direct. See deploy/cf-worker/worker.js for a ready-to-deploy forwarder.</small>
+
     <button type="submit">Save</button>
   </fieldset>
 </form>
 `))
+
+type sourcesPageData struct {
+	Sources  []config.SourceConfig
+	ProxyURL string
+}
 
 func (s *Server) handleSourcesGet(w http.ResponseWriter, r *http.Request) {
 	cfg := s.cfgStore.Get()
@@ -109,7 +119,8 @@ func (s *Server) handleSourcesGet(w http.ResponseWriter, r *http.Request) {
 	sort.Slice(sorted, func(i, j int) bool { return sorted[i].Priority < sorted[j].Priority })
 
 	var buf bytes.Buffer
-	if err := sourcesTmpl.Execute(&buf, sorted); err != nil {
+	data := sourcesPageData{Sources: sorted, ProxyURL: cfg.Scraping.ProxyURL}
+	if err := sourcesTmpl.Execute(&buf, data); err != nil {
 		s.logger.Error("rendering sources form", "error", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
@@ -137,6 +148,7 @@ func (s *Server) handleSourcesPost(w http.ResponseWriter, r *http.Request) {
 			updated[i] = sc
 		}
 		next.Sources = updated
+		next.Scraping.ProxyURL = r.FormValue("proxy_url")
 	})
 	if err != nil {
 		s.logger.Error("saving sources config", "error", err)

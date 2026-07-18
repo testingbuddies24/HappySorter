@@ -93,20 +93,24 @@ For each non-rubbish video file:
 - Sources are tried in user-configured priority order.
 - **Default source order is studio-direct first, aggregators as fallback**
   (see `research/source-test-results.md`): `s1`, `ideapocket`, then
-  `javbus`, `javdb`, `javlibrary`. Studio sites are not Cloudflare-gated
-  and resolve reliably; aggregators cover the long tail. (`sodprime` and
-  `mgstage` were probed and dropped in Milestone 4a — both are Japan-only
-  geo-blocked, not Cloudflare-gated, so no proxy fixes them; see
-  `docs/ROADMAP.md`.)
+  `javbus`, `javdb` (implemented), plus `javlibrary` (listed but not yet
+  implemented — no adapter until a proxy is available to verify selectors
+  against; see `docs/ROADMAP.md` M4b). Studio sites are not Cloudflare-
+  gated and resolve reliably; aggregators cover the long tail. (`sodprime`
+  and `mgstage` were probed and dropped in Milestone 4a — both are
+  Japan-only geo-blocked, not Cloudflare-gated, so no proxy fixes them;
+  see `docs/ROADMAP.md`.)
 - A "failure" that triggers fallback: HTTP error, code-not-found, missing required fields (title or cover image), context timeout, Cloudflare challenge on a source with no proxy configured.
 - Per-source rate limit (QPS) configurable; default 1 QPS.
 - **Cloudflare handling:** an optional `proxy_url` (HTTP/SOCKS5 or a
-  Cloudflare Worker forwarder) routes requests for aggregator sources.
-  When empty, Cloudflare-gated sources are skipped with a clear log reason;
-  studio sources still work. Most residential/home-NAS IPs need no proxy.
-- **Age-gate handling:** sources behind an age-consent wall (e.g. JavBus)
-  have their consent cookie POSTed once and persisted under `cookies_dir`,
-  so subsequent requests pass through automatically.
+  Cloudflare Worker forwarder) exists for whichever source needs it. Live
+  probing during Milestone 4b found `javbus` and `javdb` resolve directly —
+  only `javlibrary` is genuinely Cloudflare-gated, and its adapter is
+  deferred, so no shipped source currently uses `proxy_url`. Most
+  residential/home-NAS IPs need no proxy for the sources that do ship.
+- **Age-gate handling:** JavBus's age-verification redirect turned out to
+  be cosmetic (the redirect response body already has the real page), so
+  no consent-cookie flow was needed for it; no shipped source requires one.
 - Cached results (code → metadata) live in SQLite so re-scrape on retry isn't required.
 - Sources ship disabled by default; user enables them in the GUI and is
   reminded of the legal/ToS context.

@@ -96,15 +96,22 @@ Three volume mounts:
       Kind           SourceKind // studio | distributor | aggregator
   }
   ```
-- One adapter per scrape target site. The HTTP client each adapter uses is
-  injected by the manager, already wired with the configured `proxy_url`
-  and a per-source cookie jar (see § 4.1).
+- One adapter per scrape target site. The `proxy_url` config field and
+  `deploy/cf-worker/worker.js` exist for whichever adapters turn out to
+  need them (see § 4.1) — no per-adapter cookie jar was built, since only
+  one shipped source ended up needing anything beyond a plain client (see
+  below).
 - Shipped adapters, in default priority order (studio-direct first because
   they are not Cloudflare-gated — see `research/source-test-results.md`):
-  `s1`, `ideapocket`, then aggregators `javbus`, `javdb`, `javlibrary`.
-  Others pluggable. (`sodprime` and `mgstage` were probed during Milestone
-  4a and dropped — both are Japan-only geo-blocked, not Cloudflare-gated,
-  so the proxy infra below doesn't help; see `docs/ROADMAP.md` M4a.)
+  `s1`, `ideapocket`, then aggregators `javbus`, `javdb`. Others pluggable.
+  (`sodprime` and `mgstage` were probed during Milestone 4a and dropped —
+  both are Japan-only geo-blocked, not Cloudflare-gated, so the proxy
+  infra below doesn't help; see `docs/ROADMAP.md` M4a.) Live probing during
+  Milestone 4b found `javbus` and `javdb` resolve directly with no proxy
+  or age-cookie handling needed at all, contradicting this doc's original
+  assumption — only `javlibrary` is genuinely Cloudflare-challenged, and
+  its adapter is deferred until a working proxy is available to verify
+  selectors against (`docs/ROADMAP.md` M4b).
 
 ### 2.7 Organiser
 
@@ -259,24 +266,26 @@ already-organised release is left completely untouched, and the incoming file
 is instead routed to `review/_duplicate/` with `state=review_duplicate`, for
 the user to compare and resolve by hand.
 
-### 4.1 HTTP client wiring (proxy + cookies)
+### 4.1 HTTP client wiring (proxy)
 
-Live probing (see `research/source-test-results.md`) showed the aggregators
-(JavLibrary, JavDB, JavBus) sit behind Cloudflare and/or an age gate, while
-studio-direct sites do not. The manager owns a single HTTP client factory so
-each adapter gets a client pre-wired for its needs:
+Live probing during Milestone 4b (see `docs/ROADMAP.md` M4b) found this
+section's original assumption wrong: only JavLibrary is actually
+Cloudflare-gated. JavBus's age-gate redirect is cosmetic (the 302 body
+already has the real page) and JavDB resolves directly — neither needs a
+proxy or a cookie jar, so the capability-based `clientFor`
+proxy/cookie-routing factory below was **not built**; adapters share the
+one plain HTTP client the server already constructs. The `proxy_url`
+config field and `deploy/cf-worker/worker.js` still exist, ready for
+whenever the JavLibrary adapter is implemented and genuinely needs them:
 
 ```
+# Not implemented — reserved design for whenever an adapter needs it:
 manager.clientFor(adapter)
    │
    ├─ if adapter.Capabilities().NeedsProxy && cfg.proxy_url != ""
    │      → route through cfg.proxy_url (HTTP/SOCKS5/CF-Worker)
    │  else if NeedsProxy && proxy_url == ""
    │      → skip adapter, log "needs proxy, none configured"
-   │
-   ├─ if adapter.Capabilities().NeedsAgeCookie
-   │      → attach persistent cookie jar from cookies_dir/<name>.txt
-   │      → on first 200-with-age-gate, POST the consent form, save cookie
    │
    └─ always: set browser User-Agent, per-source rate limiter, timeout
 ```
@@ -338,13 +347,15 @@ paths:
 scraping:
   default_qps: 1.0
   timeout_seconds: 30
-  # Optional egress proxy for Cloudflare-gated aggregators. Leave empty to
-  # go direct (works from most residential IPs). Accepts an HTTP/SOCKS5 URL
-  # or a Cloudflare Worker forwarder base URL. See DEPLOYMENT.md § "Optional:
-  # Cloudflare Worker proxy". Adapters with NeedsProxy=true are skipped when
-  # this is empty.
+  # Optional egress proxy, only needed for genuinely Cloudflare-gated
+  # sources. Leave empty to go direct. Accepts an HTTP/SOCKS5 URL or a
+  # Cloudflare Worker forwarder base URL (deploy/cf-worker/worker.js). See
+  # DEPLOYMENT.md § "Optional: Cloudflare Worker proxy". As of Milestone
+  # 4b, no shipped adapter needs it yet — javbus/javdb resolve directly;
+  # only the not-yet-implemented javlibrary would use it.
   proxy_url: ""
-  # Where per-source age-verification cookies are persisted between restarts.
+  # Reserved for a future per-source age-verification cookie jar; unused —
+  # no shipped adapter needs one (see § 2.6).
   cookies_dir: /config/cookies
 
 # Default source list, studio-direct first (no Cloudflare), aggregators as
@@ -359,15 +370,15 @@ sources:
     enabled: false
     priority: 2
     qps: 1.0
-  - name: javbus             # aggregator — age gate, may need proxy
+  - name: javbus             # aggregator — resolves directly, no proxy needed
     enabled: false
     priority: 3
     qps: 1.0
-  - name: javdb              # aggregator — Cloudflare, needs proxy
+  - name: javdb              # aggregator — resolves directly, no proxy needed
     enabled: false
     priority: 4
     qps: 1.0
-  - name: javlibrary         # aggregator — most aggressive Cloudflare
+  - name: javlibrary         # aggregator — Cloudflare-gated; adapter not yet implemented
     enabled: false
     priority: 5
     qps: 0.5
@@ -387,8 +398,8 @@ the watcher logs and waits.
 |---------------------------------|-----------------------------------------------------|
 | Source site 5xx                 | Retry that source up to 3× with backoff; then next |
 | Source site 404 (code not found)| Skip to next source immediately                     |
-| Cloudflare challenge (403 "Just a moment")| Adapter needs proxy: if `proxy_url` set, retry via proxy; else skip source, log "Cloudflare-gated, configure proxy_url" |
-| Age gate (200 but consent wall) | POST consent form once, persist cookie to `cookies_dir`, retry |
+| Cloudflare challenge (403 "Just a moment")| Not yet implemented — no shipped adapter hits this (see § 4.1); reserved for whenever the JavLibrary adapter is added |
+| Age gate (200 but consent wall) | Not applicable to any shipped adapter — JavBus's redirect-to-age-gate is cosmetic and doesn't need a consent POST (see § 2.6) |
 | All sources fail                | Move file to `review/_unmatched/`, log, surface    |
 | Destination file already exists | Leave the existing organised release untouched; move the incoming file to `review/_duplicate/`, `state=review_duplicate`, log, surface |
 | Cover image download fails      | Generate placeholder poster.jpg; continue           |
