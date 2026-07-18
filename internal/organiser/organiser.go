@@ -65,17 +65,18 @@ func (o *Organiser) Organise(ctx context.Context, m *scraper.Metadata, videoPath
 		return "", fmt.Errorf("creating library folder: %w", err)
 	}
 
-	if m.CoverURL != "" {
-		if err := o.download(ctx, m.CoverURL, filepath.Join(dir, "poster.jpg")); err != nil {
-			return "", fmt.Errorf("downloading cover: %w", err)
+	posterPath := filepath.Join(dir, "poster.jpg")
+	if m.CoverURL == "" || o.download(ctx, m.CoverURL, posterPath) != nil {
+		if err := writePlaceholderPoster(posterPath, m.Code); err != nil {
+			return "", fmt.Errorf("writing placeholder poster: %w", err)
 		}
 	}
 	if m.FanartURL != "" {
-		if err := o.download(ctx, m.FanartURL, filepath.Join(dir, "fanart.jpg")); err != nil {
-			return "", fmt.Errorf("downloading fanart: %w", err)
-		}
-		if err := copyFile(filepath.Join(dir, "fanart.jpg"), filepath.Join(dir, "backdrop.jpg")); err != nil {
-			return "", fmt.Errorf("aliasing backdrop: %w", err)
+		fanartPath := filepath.Join(dir, "fanart.jpg")
+		if err := o.download(ctx, m.FanartURL, fanartPath); err == nil {
+			if err := copyFile(fanartPath, filepath.Join(dir, "backdrop.jpg")); err != nil {
+				return "", fmt.Errorf("aliasing backdrop: %w", err)
+			}
 		}
 	}
 

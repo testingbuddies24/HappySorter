@@ -22,7 +22,7 @@ docker run -d \
   -v /volume1/data/happy-sorter/config:/config \
   -v /volume1/data/jav:/library \
   -v /volume1/data/watch:/watch \
-  ghcr.io/<owner>/happy-sorter:latest
+  ghcr.io/testingbuddies24/happy-sorter:latest
 ```
 
 What this does:
@@ -42,7 +42,7 @@ Open `http://<nas-ip>:8080` and follow the setup wizard.
 ```yaml
 services:
   happy-sorter:
-    image: ghcr.io/<owner>/happy-sorter:latest
+    image: ghcr.io/testingbuddies24/happy-sorter:latest
     container_name: happy-sorter
     restart: unless-stopped
     ports:
@@ -53,11 +53,12 @@ services:
       - /volume1/data/watch:/watch              # drop folder (writable — see § 2)
     environment:
       - TZ=Asia/Hong_Kong                      # match your NAS timezone
-    # Optional hardening:
-    # read_only: true
-    # security_opt:
-    #   - no-new-privileges:true
-    # user: "1000:1000"
+    # Hardening (§ 10) — on by default; the app only ever writes under the
+    # three volumes above, so the container root filesystem can be read-only.
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    user: "1000:1000"
 ```
 
 Run:
@@ -150,7 +151,7 @@ Jellyfin library config:
 - Use **Container Station** → create the container from the image.
 - Volume paths must be under `/share/...` or a defined volume.
 - For arm64 QNAP NAS (e.g. TS-253D), confirm the image tag supports arm64:
-  `docker manifest inspect ghcr.io/<owner>/happy-sorter:latest | grep arm64`.
+  `docker manifest inspect ghcr.io/testingbuddies24/happy-sorter:latest | grep arm64`.
 
 ### NFS / SMB shares as `/watch`
 
@@ -188,7 +189,7 @@ The DB schema migrates automatically. Old library folders are untouched.
 
 To pin a version:
 ```yaml
-image: ghcr.io/<owner>/happy-sorter:1.0.0
+image: ghcr.io/testingbuddies24/happy-sorter:1.0.0
 ```
 
 ## 9. Troubleshooting
@@ -206,10 +207,19 @@ image: ghcr.io/<owner>/happy-sorter:1.0.0
 
 ## 10. Hardening checklist
 
+The image and `docker-compose.yml` in this repo already do the first three:
+
+- [x] Container runs as non-root (UID 1000) — baked into the `Dockerfile`.
+- [x] `read_only: true` on the container root FS — the app only ever writes
+      under `/config`, `/library`, and `/watch` (all bind-mounted), so this
+      is reasoned safe by code inspection. Not yet run under an actual
+      read-only container on real hardware — if you hit a startup error
+      after enabling this, that's the first thing to report.
+- [x] `no-new-privileges:true` security option.
+
+Up to you:
+
 - [ ] GUI bound to LAN IP only (set via reverse proxy, e.g. Caddy).
-- [ ] Container runs as non-root (UID 1000).
-- [ ] `read_only: true` on the container root FS.
-- [ ] `no-new-privileges:true` security option.
 - [ ] Watch folder permissions scoped to HappySorter's UID only (it needs
       write access to move files out, so `:ro` is not an option — see § 2).
 - [ ] Jellyfin and HappySorter on the same trusted VLAN.

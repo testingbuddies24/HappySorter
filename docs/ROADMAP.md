@@ -347,24 +347,78 @@ fallback mechanics work end-to-end on a real second source.
   sources enabled → every adapter tried and missed, routed to
   `review/_unmatched/` with reason `all sources failed for code ABC-999`.
 
-## Milestone 5 — Hardening & release
+## Milestone 5 — Hardening & release 🔶 in progress
 
 **Goal:** ship a v1.0.0 image.
 
-- Non-root container, `read_only` FS, `no-new-privileges`.
-- Multi-arch build (`linux/amd64,linux/arm64`) pushed to GHCR.
-- Placeholder-poster generation, error-path polish, backup/restore doc pass.
-- README badges, versioned tag, `LICENSE`.
+- Non-root container, `read_only` FS, `no-new-privileges` — done, but
+  *reasoned* safe rather than run-verified (no Docker on this dev machine,
+  consistent with M0–M4b). The `Dockerfile` already ran as UID 1000 (since
+  M0); `docker-compose.yml` now turns on `read_only: true`,
+  `no-new-privileges:true`, and `user: "1000:1000"` by default rather than
+  as a commented-out "optional hardening" suggestion. Reasoned safe by
+  grepping every filesystem write in the codebase
+  (`os.Create`/`os.WriteFile`/`os.MkdirAll`/`os.CreateTemp` across
+  `config`, `fsutil`, `nfo`, `organiser`) — all of them land under
+  `/config`, `/library`, or `/watch`, the three bind-mounted volumes. One
+  caveat grep can't rule out: the `modernc.org/sqlite` driver could in
+  principle want scratch space outside `/config` in some mode; this hasn't
+  been exercised under an actual read-only container yet, so treat this as
+  "should work" until someone runs it on real hardware.
+- Placeholder-poster generation — done. `SPEC.md` F5 required this but it
+  was never implemented. The old behavior was inconsistent: an empty
+  `CoverURL` organised the file with no `poster.jpg` at all (no error), but
+  a *non-empty* URL that failed to download returned a hard error, routing
+  the whole file to `review/_unmatched/` as Failed even though the metadata
+  scrape itself had succeeded. New `internal/organiser/placeholder.go`
+  (`golang.org/x/image` — `basicfont` + `font.Drawer`) renders a plain
+  400×600 JPEG with the code text centered on it; `Organise` now falls back
+  to it in both cases (empty URL or failed download) instead of leaving the
+  poster missing or failing the item. Fanart got the same non-fatal
+  treatment (a missing/failed fanart just means no
+  `fanart.jpg`/`backdrop.jpg`, not a failed item). Note the tradeoff: a
+  *transient* download failure now writes a placeholder and marks the item
+  `done` permanently — the metadata cache means the real cover is never
+  retried later, whereas the old Failed-state was retryable via `/review`.
+  Judged worth it (a placeholder beats an item stuck in review over a
+  network blip), but it is a real behavior change, not pure polish.
+  Verified: unit test decodes the generated JPEG and checks dimensions;
+  live testbed run with `s1` confirms the untouched happy path still pulls
+  the real 500 KB cover (not a placeholder) when the source has one. The
+  failure→placeholder branch itself was not exercised end-to-end (only unit
+  + happy-path tested) — the logic is small and `os.Create` safely
+  overwrites any partial download, so this was judged low-risk rather than
+  blocking on it.
+- README badges + `LICENSE` — done. `LICENSE` (MIT) already existed since
+  an earlier milestone. Added CI/Release GitHub Actions badges (below) plus
+  a static license badge to `README.md`.
+- Error-path polish — the cover/fanart change above *is* the error-path
+  polish this bullet meant; no other unhandled-error paths were found worth
+  chasing at this size.
+- Backup/restore doc pass — `DEPLOYMENT.md § 7` already documented this
+  accurately as of M4b; nothing stale to correct.
+- Multi-arch build (`linux/amd64,linux/arm64`) pushed to GHCR — **prepped,
+  not executed.** Added `.github/workflows/release.yml`: builds
+  `linux/amd64,linux/arm64` via `docker buildx` + QEMU and pushes to
+  `ghcr.io/testingbuddies24/happy-sorter` on any `v*.*.*` tag push. Also
+  added `.github/workflows/ci.yml` (`go build`/`go vet`/`gofmt -l` on every
+  push/PR to `main`) since there was no CI at all before this. Neither
+  workflow has been triggered yet — pushing a version tag is a deliberate,
+  externally-visible release action (publishes a public image), left for
+  an explicit go-ahead rather than done in-line with everything else here.
+- Versioned tag — **not cut yet**, same reasoning as above.
 
 **Verify:** fresh-NAS install from README quickstart succeeds end-to-end;
-success criteria in `SPEC.md § 7` all pass.
+success criteria in `SPEC.md § 7` all pass. Blocked on cutting the release
+tag (see above) — everything else in this milestone is done and pushed.
 
 ## Dependency order
 
 ```
 M0 ──▶ M1 ──▶ M2 ──▶ M3 ──▶ M4a ──▶ M4b ──▶ M5
 skeleton  triage  1 scraper  GUI    2nd source  aggregators  release
-                  +organise         +queue drain +proxy infra (done)
+                  +organise         +queue drain +proxy infra (in progress:
+                                     (done)       (done)      tag+GHCR push pending)
 ```
 
 Each milestone is a mergeable PR. M2 is the "does the core idea work" proof
