@@ -1,5 +1,9 @@
 # HappySorter
 
+[![CI](https://github.com/testingbuddies24/HappySorter/actions/workflows/ci.yml/badge.svg)](https://github.com/testingbuddies24/HappySorter/actions/workflows/ci.yml)
+[![Release](https://github.com/testingbuddies24/HappySorter/actions/workflows/release.yml/badge.svg)](https://github.com/testingbuddies24/HappySorter/actions/workflows/release.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 > Self-hosted, Docker-deployable organizer for personal JAV (Japanese Adult Video) media libraries, with first-class [Jellyfin](https://jellyfin.org/) compatibility.
 
 Drop a video file into a watched folder. HappySorter parses the JAV code from the filename, scrapes metadata from multiple sources (with ordered fallback), and lays out the file into a Jellyfin-recognized folder: `<CODE> (<YEAR>)/<CODE> (<YEAR>).mp4` + `poster.jpg` + `fanart.jpg` + `movie.nfo` + `actors/`.
@@ -30,7 +34,7 @@ docker run -d \
   -v $(pwd)/happy-sorter/config:/config \
   -v /path/to/library:/library \
   -v /path/to/watch:/watch \
-  ghcr.io/<owner>/happy-sorter:latest
+  ghcr.io/testingbuddies24/happy-sorter:latest
 ```
 
 Then open `http://localhost:8080` and walk through the setup wizard.
@@ -53,7 +57,8 @@ See [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) for the full guide (docker-compos
 
 ## Project status
 
-🏗️ **Milestone 4b complete** — the pipeline now has four working sources:
+🏗️ **Milestone 5 in progress (hardening & release)** — the pipeline has
+four working sources:
 two studio-direct (S1, IdeaPocket) and two aggregators (JavBus, JavDB),
 tried in priority order with real fallback. Files dropped into `/watch`
 are triaged (rubbish filter, JAV code extraction), scraped live with
@@ -70,10 +75,16 @@ is configurable from the web GUI without editing YAML by hand:
 Cloudflare-gated sources), `/setup/rename`, a `/review` queue with
 retry/delete, `/logs`, and `/rescan`/`/pause`/`/resume` controls — folder
 paths, sources, and rename templates all hot-reload without a restart
-(only the watch path and server port need one). See `docs/ROADMAP.md` for
-what's next (Milestone 5: hardening & release — a third aggregator,
-JavLibrary, remains deferred behind a genuine Cloudflare challenge until
-a working proxy is available to verify selectors against).
+(only the watch path and server port need one). Missing or failed cover
+downloads now fall back to a generated placeholder poster instead of
+leaving the item without a poster (or, for a failed download, failing the
+whole item). The container runs non-root with a read-only root filesystem
+by default (reasoned safe by code inspection; not yet run on real Docker
+hardware), and CI (build/vet/format/test) plus a tag-triggered multi-arch GHCR release
+workflow are wired up in `.github/workflows/`. What's left before v1.0.0:
+cutting the actual version tag (see `docs/ROADMAP.md` M5) and the third
+aggregator, JavLibrary, which remains deferred behind a genuine Cloudflare
+challenge until a working proxy is available to verify selectors against.
 
 For a hands-on sandbox to run the server yourself and drop test files in,
 see [`testbed/README.md`](testbed/README.md).

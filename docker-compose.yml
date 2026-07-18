@@ -11,3 +11,10 @@ services:
       - ./watch:/watch                # drop folder (must be writable — HappySorter moves files out of it)
     environment:
       - TZ=UTC
+    # Hardening (see docs/DEPLOYMENT.md § 10): the app only ever writes under
+    # /config, /library, and /watch (all bind-mounted above), so the
+    # container root filesystem can be fully read-only.
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    user: "1000:1000"
