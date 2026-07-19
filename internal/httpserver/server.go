@@ -17,8 +17,10 @@ import (
 	"github.com/testingbuddies24/HappySorter/internal/watcher"
 )
 
-// Version is the running build's version string.
-const Version = "0.3.0-dev"
+// Version is the running build's version string, overridden at build time
+// via -ldflags "-X .../internal/httpserver.Version=vX.Y.Z" (see Dockerfile
+// and .github/workflows/release.yml).
+var Version = "dev"
 
 // watcherControl is the subset of *watcher.Watcher the GUI needs — kept as
 // an interface so tests could fake it, though production always passes the
