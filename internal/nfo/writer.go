@@ -24,29 +24,54 @@ type movie struct {
 	XMLName       xml.Name `xml:"movie"`
 	Title         string   `xml:"title"`
 	OriginalTitle string   `xml:"originaltitle"`
+	Studio        string   `xml:"studio,omitempty"`
+	Year          int      `xml:"year,omitempty"`
+	Premiered     string   `xml:"premiered,omitempty"`
 	Plot          string   `xml:"plot"`
 	Runtime       int      `xml:"runtime,omitempty"`
-	Premiered     string   `xml:"premiered,omitempty"`
-	Year          int      `xml:"year,omitempty"`
-	Studio        string   `xml:"studio,omitempty"`
 	Director      string   `xml:"director,omitempty"`
-	Genres        []string `xml:"genre,omitempty"`
+	Poster        string   `xml:"poster,omitempty"`
+	Fanart        string   `xml:"fanart,omitempty"`
 	Actors        []actor  `xml:"actor"`
+	Genres        []string `xml:"genre,omitempty"`
+	Tags          []string `xml:"tag,omitempty"`
+	Maker         string   `xml:"maker,omitempty"`
+	Num           string   `xml:"num"`
+	Release       string   `xml:"release,omitempty"`
 	UniqueID      uniqueID `xml:"uniqueid"`
 }
 
-// Write emits a Kodi-schema movie.nfo for m at path.
-func Write(path string, m *scraper.Metadata) error {
+// Artwork names the image sidecar files (relative to the .nfo) that the
+// organiser wrote, so the NFO can reference them explicitly. Empty fields
+// are omitted from the output.
+type Artwork struct {
+	Poster string
+	Fanart string
+}
+
+// Write emits a Kodi/Jellyfin-schema movie.nfo for m at path. art carries the
+// filenames of the poster/fanart sidecars the organiser produced alongside it.
+func Write(path string, m *scraper.Metadata, art Artwork) error {
+	// Prefix the title with the code (e.g. "[MIDA-678]Title") so the code is
+	// visible in Jellyfin's library grid, matching the common JAV convention.
+	title := "[" + m.Code + "]" + m.Title
+
 	doc := movie{
-		Title:         m.Title,
-		OriginalTitle: m.Title,
+		Title:         title,
+		OriginalTitle: title,
+		Studio:        m.Studio,
+		Year:          m.Year,
+		Premiered:     m.ReleaseDate,
 		Plot:          m.Plot,
 		Runtime:       m.Runtime,
-		Premiered:     m.ReleaseDate,
-		Year:          m.Year,
-		Studio:        m.Studio,
 		Director:      m.Director,
+		Poster:        art.Poster,
+		Fanart:        art.Fanart,
 		Genres:        m.Genres,
+		Tags:          m.Genres, // Jellyfin JAV setups mirror genres as tags
+		Maker:         m.Studio,
+		Num:           m.Code,
+		Release:       m.ReleaseDate,
 		UniqueID:      uniqueID{Type: "jav", Default: true, Value: m.Code},
 	}
 	for _, name := range m.Actresses {

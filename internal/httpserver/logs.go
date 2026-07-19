@@ -29,7 +29,7 @@ var logsTmpl = template.Must(template.New("logs").Parse(`
   {{range .Records}}
   <tr>
     <td>{{.Time.Format "2006-01-02 15:04:05"}}</td>
-    <td><span class="badge">{{.Level}}</span></td>
+    <td><span class="badge" data-level="{{.Level}}">{{.Level}}</span></td>
     <td>{{.Message}}</td>
     <td>{{.Fields}}</td>
   </tr>

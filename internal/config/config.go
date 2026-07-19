@@ -82,8 +82,8 @@ func Default() *Config {
 			{Name: "javlibrary", Enabled: false, Priority: 5, QPS: 0.5},
 		},
 		Rename: RenameConfig{
-			FolderTemplate:     "{code} ({year})",
-			FileTemplate:       "{code} ({year})",
+			FolderTemplate:     "{code}",
+			FileTemplate:       "{code}",
 			UnknownPlaceholder: "Unknown",
 		},
 	}

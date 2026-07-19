@@ -22,7 +22,7 @@ func NewLogStore(db *sql.DB) *LogStore {
 	return &LogStore{db: db}
 }
 
-// Tail returns the most recent limit log entries, oldest first, optionally
+// Tail returns the most recent limit log entries, newest first, optionally
 // filtered to a single level ("" means all levels).
 func (s *LogStore) Tail(limit int, level string) ([]LogRecord, error) {
 	var rows *sql.Rows
@@ -53,9 +53,7 @@ func (s *LogStore) Tail(limit int, level string) ([]LogRecord, error) {
 		return nil, err
 	}
 
-	// reverse into chronological order (query was newest-first for the LIMIT)
-	for i, j := 0, len(out)-1; i < j; i, j = i+1, j-1 {
-		out[i], out[j] = out[j], out[i]
-	}
+	// Query already orders newest-first (ORDER BY id DESC), which is how the
+	// log viewer displays them — most recent at the top.
 	return out, nil
 }
