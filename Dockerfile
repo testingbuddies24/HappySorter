@@ -2,10 +2,11 @@
 
 FROM golang:1.25-alpine AS build
 WORKDIR /src
+ARG VERSION=dev
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
-RUN CGO_ENABLED=0 go build -o /out/happy-sorter ./cmd/server
+RUN CGO_ENABLED=0 go build -ldflags "-X github.com/testingbuddies24/HappySorter/internal/httpserver.Version=${VERSION}" -o /out/happy-sorter ./cmd/server
 
 FROM alpine:3.20
 RUN apk add --no-cache ca-certificates tzdata \
