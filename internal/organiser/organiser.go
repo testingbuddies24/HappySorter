@@ -1,11 +1,11 @@
 // Package organiser lays scraped files out into the Jellyfin-recognised
-// folder structure (docs/ARCHITECTURE.md § 2.7, § 5):
+// folder structure (docs/ARCHITECTURE.md § 2.7, § 5). Sidecars are named
+// after the video file so Jellyfin pairs them by basename:
 //
 //	<CODE> (<YEAR>)/<CODE> (<YEAR>).<ext>
-//	<CODE> (<YEAR>)/poster.jpg
-//	<CODE> (<YEAR>)/fanart.jpg
-//	<CODE> (<YEAR>)/backdrop.jpg  (alias of fanart.jpg)
-//	<CODE> (<YEAR>)/movie.nfo
+//	<CODE> (<YEAR>)/<CODE> (<YEAR>)-poster.jpg
+//	<CODE> (<YEAR>)/<CODE> (<YEAR>)-fanart.jpg
+//	<CODE> (<YEAR>)/<CODE> (<YEAR>).nfo
 package organiser
 
 import (
@@ -53,34 +53,38 @@ func (e *DuplicateError) Error() string {
 // poster/fanart/NFO alongside it. Returns the video's final path.
 func (o *Organiser) Organise(ctx context.Context, m *scraper.Metadata, videoPath string) (string, error) {
 	cfg := o.cfgStore.Get()
+	base := o.renderName(cfg.Rename, cfg.Rename.FileTemplate, m)
 	dir := filepath.Join(cfg.Paths.Library, o.renderName(cfg.Rename, cfg.Rename.FolderTemplate, m))
-	fileName := o.renderName(cfg.Rename, cfg.Rename.FileTemplate, m) + strings.ToLower(filepath.Ext(videoPath))
-	dest := filepath.Join(dir, fileName)
+	dest := filepath.Join(dir, base+strings.ToLower(filepath.Ext(videoPath)))
 
-	if _, err := os.Stat(dest); err == nil {
-		return "", &DuplicateError{ExistingPath: dest}
+	// Treat an existing release folder as a duplicate: the code is already in
+	// the library, so route the newcomer aside rather than merging a second
+	// video (and overwriting sidecars) into the same folder.
+	if _, err := os.Stat(dir); err == nil {
+		return "", &DuplicateError{ExistingPath: dir}
 	}
 
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", fmt.Errorf("creating library folder: %w", err)
 	}
 
-	posterPath := filepath.Join(dir, "poster.jpg")
-	if m.CoverURL == "" || o.download(ctx, m.CoverURL, posterPath) != nil {
-		if err := writePlaceholderPoster(posterPath, m.Code); err != nil {
+	// Sidecars share the video's basename so Jellyfin pairs them (e.g.
+	// "MIDA-678 (2026)-poster.jpg" next to "MIDA-678 (2026).mp4").
+	posterName := base + "-poster.jpg"
+	if m.CoverURL == "" || o.download(ctx, m.CoverURL, filepath.Join(dir, posterName)) != nil {
+		if err := writePlaceholderPoster(filepath.Join(dir, posterName), m.Code); err != nil {
 			return "", fmt.Errorf("writing placeholder poster: %w", err)
 		}
 	}
+	art := nfo.Artwork{Poster: posterName}
 	if m.FanartURL != "" {
-		fanartPath := filepath.Join(dir, "fanart.jpg")
-		if err := o.download(ctx, m.FanartURL, fanartPath); err == nil {
-			if err := copyFile(fanartPath, filepath.Join(dir, "backdrop.jpg")); err != nil {
-				return "", fmt.Errorf("aliasing backdrop: %w", err)
-			}
+		fanartName := base + "-fanart.jpg"
+		if err := o.download(ctx, m.FanartURL, filepath.Join(dir, fanartName)); err == nil {
+			art.Fanart = fanartName
 		}
 	}
 
-	if err := nfo.Write(filepath.Join(dir, "movie.nfo"), m); err != nil {
+	if err := nfo.Write(filepath.Join(dir, base+".nfo"), m, art); err != nil {
 		return "", fmt.Errorf("writing nfo: %w", err)
 	}
 
@@ -129,12 +133,4 @@ func (o *Organiser) download(ctx context.Context, imgURL, dest string) error {
 
 	_, err = io.Copy(f, resp.Body)
 	return err
-}
-
-func copyFile(src, dest string) error {
-	data, err := os.ReadFile(src)
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(dest, data, 0o644)
 }

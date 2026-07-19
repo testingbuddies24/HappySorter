@@ -114,13 +114,13 @@ run one. Leave the field empty to go direct.
 │   ├── (incoming SSIS-001.mp4)
 │   └── (incoming HEY-067.mp4)
 ├── jav/                         ← HappySorter output (= Jellyfin library)
-│   ├── SSIS-001 (2018)/
-│   │   ├── SSIS-001 (2018).mp4
-│   │   ├── poster.jpg
-│   │   ├── fanart.jpg
-│   │   ├── movie.nfo
+│   ├── SSIS-001/
+│   │   ├── SSIS-001.mp4
+│   │   ├── SSIS-001-poster.jpg
+│   │   ├── SSIS-001-fanart.jpg
+│   │   ├── SSIS-001.nfo
 │   │   └── actors/
-│   ├── HEY-067 (2022)/
+│   ├── HEY-067/
 │   │   └── ...
 │   └── review/
 │       ├── _filter/             ← files the rubbish filter rejected

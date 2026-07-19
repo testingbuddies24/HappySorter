@@ -118,10 +118,10 @@ Three volume mounts:
 - File: `internal/organiser/organiser.go`
 - Receives a successful `(code, metadata, source_path)` triple.
 - Creates `<CODE> (<YEAR>)/` under `/library`.
-- Downloads cover + fanart → `poster.jpg` + `fanart.jpg`.
+- Downloads cover + fanart → `<CODE> (<YEAR>)-poster.jpg` + `<CODE> (<YEAR>)-fanart.jpg`.
 - Downloads per-actress photos → `actors/`.
 - Renames + moves video file.
-- Writes `movie.nfo` (Kodi schema).
+- Writes `<CODE> (<YEAR>).nfo` (Kodi schema), sidecars named after the video.
 
 ### 2.8 NFO writer
 
@@ -301,11 +301,9 @@ the manager's skip-with-reason logging makes it visible in the GUI.
 <Library Root>/
 └── <CODE> (<YEAR>)/
     ├── <CODE> (<YEAR>).<ext>
-    ├── poster.jpg                  (cover, portrait)
-    ├── fanart.jpg                  (backdrop, landscape)
-    ├── backdrop.jpg                (alias of fanart.jpg)
-    ├── thumb.jpg                   (small thumb)
-    ├── movie.nfo                   (Kodi XML, Jellyfin reads it)
+    ├── <CODE> (<YEAR>)-poster.jpg  (cover, portrait)
+    ├── <CODE> (<YEAR>)-fanart.jpg  (backdrop, landscape)
+    ├── <CODE> (<YEAR>).nfo         (Kodi XML, Jellyfin reads it)
     └── actors/
         └── <actress-slug>.jpg      (per-actress photo)
 ```
@@ -384,8 +382,8 @@ sources:
     qps: 0.5
 
 rename:
-  folder_template: "{code} ({year})"
-  file_template:   "{code} ({year})"
+  folder_template: "{code}"
+  file_template:   "{code}"
   unknown_placeholder: "Unknown"
 ```
 

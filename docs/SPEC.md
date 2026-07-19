@@ -82,8 +82,14 @@ The user reviews `review/_filter/` periodically and deletes what's truly junk.
 
 For each non-rubbish video file:
 
-- Normalise the filename (strip release-group suffixes like `-CH`, `-UC`, `-JP`, `HD`, `FHD`).
-- Match against regex `^([A-Z0-9]{2,5})-?(\d{2,5})$` (case-insensitive).
+- Normalise the filename: strip trailing hyphenated alpha-only variant markers
+  (`-UC`, `-CH`, `-AI`, `-C`, …, looped so stacked markers like `-UC-AI` clear)
+  and glued quality markers (`HD`, `FHD`). Digit-bearing tails (`-CD1`, `-2`) are
+  left intact so multi-part files are not silently merged.
+- Match the normalised name against regex `^([A-Z0-9]{2,5})-?(\d{2,5})$`
+  (case-insensitive). The match stays fully anchored so noise-prefixed names
+  (e.g. `HHD800.COM-DASS-996`) fall through to review rather than yielding a
+  false code.
 - If no match → move to `review/_unmatched/`.
 - If matched → enqueue for metadata scrape with the extracted code.
 
@@ -121,20 +127,19 @@ For each successfully-scraped item:
 
 ```
 <Library Root>/
-└── <CODE> (<YEAR>)/
-    ├── <CODE> (<YEAR>).<ext>      ← renamed video file
-    ├── poster.jpg                   ← cover image (downloaded locally)
-    ├── fanart.jpg                   ← backdrop image (downloaded locally)
-    ├── backdrop.jpg                 ← alias of fanart (Jellyfin-friendly)
-    ├── thumb.jpg                    ← small thumbnail
-    ├── movie.nfo                    ← Kodi movie NFO (Jellyfin reads natively)
+└── <CODE>/                          ← folder template (default {code}, no year)
+    ├── <CODE>.<ext>                 ← renamed video file
+    ├── <CODE>-poster.jpg            ← cover image (downloaded locally)
+    ├── <CODE>-fanart.jpg            ← backdrop image (downloaded locally)
+    ├── <CODE>.nfo                   ← Kodi movie NFO (Jellyfin reads natively)
     └── actors/
         └── <actress>.jpg            ← per-actress photo (when available)
 ```
 
+- Sidecars share the video's basename so Jellyfin pairs them by filename.
 - Cover image always downloaded; never hotlinked.
 - Multiple actresses → one sub-image per name.
-- If scrape returns no cover image, generate a placeholder (`poster.jpg`
+- If scrape returns no cover image, generate a placeholder (`<CODE>-poster.jpg`
   with code rendered on it) and continue.
 
 ### F6. Review folder

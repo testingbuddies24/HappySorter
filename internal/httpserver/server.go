@@ -101,14 +101,16 @@ func (s *Server) routes() {
 }
 
 var dashboardTmpl = template.Must(template.New("dashboard").Parse(`
-<p>Version {{.Version}} &middot; up since {{.StartedAt}} &middot; watcher is <strong>{{if .Paused}}paused{{else}}running{{end}}</strong></p>
+<p class="meta">Version {{.Version}} &middot; up since {{.StartedAt}} &middot; watcher is <strong>{{if .Paused}}paused{{else}}running{{end}}</strong></p>
 
-<form method="post" action="{{if .Paused}}/resume{{else}}/pause{{end}}">
-  <button type="submit">{{if .Paused}}Resume{{else}}Pause{{end}} watcher</button>
-</form>
-<form method="post" action="/rescan">
-  <button type="submit">Trigger rescan</button>
-</form>
+<div class="toolbar">
+  <form method="post" action="{{if .Paused}}/resume{{else}}/pause{{end}}">
+    <button type="submit">{{if .Paused}}Resume{{else}}Pause{{end}} watcher</button>
+  </form>
+  <form method="post" action="/rescan">
+    <button type="submit">Trigger rescan</button>
+  </form>
+</div>
 
 <h2>Queue</h2>
 <table>
@@ -122,7 +124,7 @@ var dashboardTmpl = template.Must(template.New("dashboard").Parse(`
   {{range .Recent}}
   <tr>
     <td>{{.UpdatedAt.Format "2006-01-02 15:04:05"}}</td>
-    <td><span class="badge">{{.State}}</span></td>
+    <td><span class="badge" data-state="{{.State}}">{{.State}}</span></td>
     <td>{{.Code}}</td>
     <td>{{.CurrentPath}}</td>
     <td>{{.Reason}}</td>
