@@ -269,31 +269,40 @@ the user to compare and resolve by hand.
 ### 4.1 HTTP client wiring (proxy)
 
 Live probing during Milestone 4b (see `docs/ROADMAP.md` M4b) found this
-section's original assumption wrong: only JavLibrary is actually
-Cloudflare-gated. JavBus's age-gate redirect is cosmetic (the 302 body
-already has the real page) and JavDB resolves directly — neither needs a
-proxy or a cookie jar, so the capability-based `clientFor`
-proxy/cookie-routing factory below was **not built**; adapters share the
-one plain HTTP client the server already constructs. The `proxy_url`
-config field and `deploy/cf-worker/worker.js` still exist, ready for
-whenever the JavLibrary adapter is implemented and genuinely needs them:
+section's original assumption wrong: only JavLibrary is genuinely
+Cloudflare-gated at the protocol level. JavBus's age-gate redirect is
+cosmetic (the 302 body already has the real page) and JavDB resolves
+directly with no challenge — so the originally-planned **per-adapter**,
+capability-based `clientFor` routing (only send `NeedsProxy` adapters
+through the proxy) was not built.
+
+In practice, though, an individual NAS's IP can still get rate-limited or
+flagged by a specific site over time even without a Cloudflare challenge
+(observed against `javdb` post-launch — other sources kept working fine).
+So instead of gating on adapter capability, `internal/scraper/proxy.go`
+wraps the **one shared HTTP client** every adapter already uses in a
+`proxyTransport`: when `cfg.scraping.proxy_url` is set, every outgoing
+request (any adapter, any site) is rewritten to
+`<proxy_url>/?url=<encoded target>` — the pass-through scheme
+`deploy/cf-worker/worker.js` implements — and read fresh from the config
+store on every request, so a Proxy URL saved via the GUI applies
+immediately with no restart. Empty `proxy_url` means every request goes
+direct, unchanged.
 
 ```
-# Not implemented — reserved design for whenever an adapter needs it:
-manager.clientFor(adapter)
+httpClient.Transport = scraper.NewProxyTransport(cfgStore)
    │
-   ├─ if adapter.Capabilities().NeedsProxy && cfg.proxy_url != ""
-   │      → route through cfg.proxy_url (HTTP/SOCKS5/CF-Worker)
-   │  else if NeedsProxy && proxy_url == ""
-   │      → skip adapter, log "needs proxy, none configured"
-   │
-   └─ always: set browser User-Agent, per-source rate limiter, timeout
+   ├─ cfgStore.Get().Scraping.ProxyURL == ""
+   │      → pass the request through unmodified
+   └─ else
+          → rewrite to <proxy_url>/?url=<encoded original request URL>
 ```
 
-This keeps Cloudflare/age-gate handling out of the individual adapters —
-they only implement `Lookup`, parse HTML, and return `Metadata`. A source
-going dark (site adds Cloudflare, changes selectors) is a one-file fix, and
-the manager's skip-with-reason logging makes it visible in the GUI.
+This keeps proxy handling out of the individual adapters entirely — they
+only implement `Lookup`, parse HTML, and return `Metadata`, unaware
+whether their requests are direct or proxied. Note the Proxy URL field only
+speaks this Worker's query-param scheme, not standard HTTP/SOCKS5
+forward-proxy protocol.
 
 ## 5. Jellyfin folder layout (the contract)
 
@@ -345,12 +354,14 @@ paths:
 scraping:
   default_qps: 1.0
   timeout_seconds: 30
-  # Optional egress proxy, only needed for genuinely Cloudflare-gated
-  # sources. Leave empty to go direct. Accepts an HTTP/SOCKS5 URL or a
-  # Cloudflare Worker forwarder base URL (deploy/cf-worker/worker.js). See
-  # DEPLOYMENT.md § "Optional: Cloudflare Worker proxy". As of Milestone
-  # 4b, no shipped adapter needs it yet — javbus/javdb resolve directly;
-  # only the not-yet-implemented javlibrary would use it.
+  # Optional egress proxy for when a source starts 403ing your NAS's IP
+  # (Cloudflare rate-limit/flag), not only for genuinely Cloudflare-gated
+  # sources. Leave empty to go direct. Only accepts a Cloudflare Worker
+  # forwarder base URL (deploy/cf-worker/worker.js) — internal/scraper/
+  # proxy.go rewrites requests to its <url>/?url=<target> pass-through
+  # scheme; a plain HTTP/SOCKS5 proxy URL does not work here. See
+  # DEPLOYMENT.md § 4a. Applied uniformly to every adapter's shared HTTP
+  # client, re-read live on every request (§ 4.1) — no restart needed.
   proxy_url: ""
   # Reserved for a future per-source age-verification cookie jar; unused —
   # no shipped adapter needs one (see § 2.6).

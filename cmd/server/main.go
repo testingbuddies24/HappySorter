@@ -59,7 +59,10 @@ func run() error {
 	logStore := store.NewLogStore(db)
 	fileWatcher := watcher.New(cfg.Paths.Watch, logger)
 
-	httpClient := &http.Client{Timeout: time.Duration(cfg.Scraping.TimeoutSeconds) * time.Second}
+	httpClient := &http.Client{
+		Timeout:   time.Duration(cfg.Scraping.TimeoutSeconds) * time.Second,
+		Transport: scraper.NewProxyTransport(cfgStore),
+	}
 	managerStore := scraper.NewManagerStore(scraper.NewManager(logger, registry.BuildAdapters(cfg.Sources, httpClient, logger)...))
 	org := organiser.New(cfgStore, httpClient)
 
