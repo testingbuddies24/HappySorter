@@ -80,15 +80,17 @@ docker compose logs -f happy-sorter
 
 If nothing happens, check **Logs** in the GUI.
 
-## 4a. Optional: Cloudflare Worker proxy (no shipped source needs this yet)
+## 4a. Optional: Cloudflare Worker proxy
 
-No currently-shipped source needs a proxy: `javbus` and `javdb` both resolve
-directly. This section is here for `javlibrary`, which is genuinely
-Cloudflare-gated but has no adapter yet (`docs/ROADMAP.md` M4b) — set this up
-only once that adapter ships and your IP gets a Cloudflare challenge from it.
-This mirrors the approach used by the widely-used Emby/Jellyfin JavScraper
-plugin. The Cloudflare Worker free tier (100k requests/day) is far more than a
-personal library needs.
+`javbus` and `javdb` don't need a proxy in general (verified Cloudflare-free
+during testing), but a given NAS's IP can still get rate-limited/flagged by
+one of them over time (seen in practice against javdb — other sources kept
+working, only javdb 403'd). If a source starts failing with a `403` in
+**Logs** where it previously worked, this is the fix; you don't need to wait
+for a genuinely Cloudflare-gated source to hit this. This mirrors the
+approach used by the widely-used Emby/Jellyfin JavScraper plugin. The
+Cloudflare Worker free tier (100k requests/day) is far more than a personal
+library needs, and creating a Worker requires no payment method.
 
 1. Sign in at <https://workers.cloudflare.com> and create a Worker.
 2. Paste the pass-through forwarder from `deploy/cf-worker/worker.js` (fetches
@@ -96,10 +98,14 @@ personal library needs.
    untouched).
 3. Deploy → copy the `https://<name>.<subdomain>.workers.dev` URL.
 4. In HappySorter: **Setup → Sources → Proxy URL**, paste that URL, Save.
-   (Equivalent config key: `scraping.proxy_url` in `config.yaml`.)
+   (Equivalent config key: `scraping.proxy_url` in `config.yaml`.) Applies
+   immediately to every source, no restart needed.
 
-A standard HTTP or SOCKS5 proxy URL works in the same field if you already
-run one. Leave the field empty to go direct.
+The Proxy URL field only speaks this Worker's `?url=<target>` pass-through
+scheme (`internal/scraper/proxy.go`) — a plain HTTP/SOCKS5 forward-proxy URL
+pasted into the same field will not work, since that's a different protocol
+than what the Worker forwarder implements. Leave the field empty to go
+direct.
 
 > **Note on age gates.** JavBus shows an age-verification redirect, but it
 > turned out to be cosmetic — the redirect response body already has the real
@@ -201,7 +207,7 @@ image: ghcr.io/testingbuddies24/happy-sorter:1.0.0
 | File takes a minute+ to be picked up   | It was still copying — HappySorter waits until a file stops changing before touching it | Normal; it's processed by the next scan after the copy finishes |
 | All files end up in `review/_unmatched/` | Source site is down; code regex too strict | Check Logs; try a different source |
 | File ends up in `review/_duplicate/`   | A release for that code already exists in the library | Compare the two files by hand, then delete one; the existing library release was left untouched |
-| Logs show `Cloudflare-gated`            | Only relevant once `javlibrary` ships (not yet implemented) | Enable a studio source, or set a proxy (§ 4a) |
+| A source that used to work now `403`s   | Your NAS's IP got rate-limited/flagged by that site | Set a Proxy URL (§ 4a); other sources are unaffected in the meantime |
 | Cover image is a placeholder            | Source returned no cover                   | Try another source; manually drop cover into the folder |
 | `permission denied` on `/library`      | UID mismatch between container and NAS      | Set `user: "1000:1000"` in compose and `chown -R 1000:1000 /volume1/data/jav` |
 | Container restarts repeatedly          | Crash in pipeline                           | `docker logs happy-sorter` — share the tail |
