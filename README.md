@@ -16,7 +16,7 @@ The legacy tool at https://javhelper.blogspot.com/ is a 2015 Windows .NET file-r
 
 ## Features
 
-- 📁 **Folder watcher** — drop files in `/watch`, they appear organised in `/library`.
+- 📁 **Folder watcher** — drop files in `/download`, they appear organised in `/sorted`.
 - 🗑️ **Rubbish filter** — junk files (`.url`, `.txt`, samples, trailers) routed to a review folder.
 - 🔎 **Multi-source scrape with fallback** — configure JavLibrary, JavBus, JavDB, etc.; if one dies, the next takes over.
 - 🎬 **Jellyfin-compatible output** — `movie.nfo` + cover + fanart + per-actress photos, layout Jellyfin reads natively.
@@ -32,8 +32,8 @@ docker run -d \
   --restart unless-stopped \
   -p 8080:8080 \
   -v $(pwd)/happy-sorter/config:/config \
-  -v /path/to/library:/library \
-  -v /path/to/watch:/watch \
+  -v /path/to/sorted:/sorted \
+  -v /path/to/download:/download \
   ghcr.io/testingbuddies24/happy-sorter:latest
 ```
 
@@ -60,7 +60,7 @@ See [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) for the full guide (docker-compos
 🏗️ **Milestone 5 in progress (hardening & release)** — the pipeline has
 four working sources:
 two studio-direct (S1, IdeaPocket) and two aggregators (JavBus, JavDB),
-tried in priority order with real fallback. Files dropped into `/watch`
+tried in priority order with real fallback. Files dropped into `/download`
 are triaged (rubbish filter, JAV code extraction), scraped live with
 metadata caching (so multi-disc releases skip re-scraping) and
 priority-ordered fallback across sources, and organised into a
@@ -110,7 +110,7 @@ HappySorter/
 │   ├── pipeline/                   # watcher -> filter -> scrape -> organise
 │   ├── scraper/                    # Adapter interface, manager, s1 adapter
 │   ├── store/                      # files + metadata_cache tables
-│   └── watcher/                    # /watch folder watcher
+│   └── watcher/                    # /download folder watcher
 ├── web/                            # (future) HTMX templates + static
 ├── docs/
 │   ├── SPEC.md

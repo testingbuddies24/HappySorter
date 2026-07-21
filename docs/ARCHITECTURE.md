@@ -30,22 +30,22 @@
 └──────────────────────────────────────────────────────────────────┘
         ▲                       ▲                       ▲
         │                       │                       │
-   /config mount           /library mount          /watch mount
+   /config mount           /sorted mount          /download mount
    (config.yaml,           (Jellyfin library       (drop folder
     happy-sorter.db)        target)                 for new files)
 ```
 
 Three volume mounts:
 - `/config` — config + DB + logs
-- `/library` — the output Jellyfin library (cover.jpg, fanart.jpg, nfo, mp4)
-- `/watch` — the input folder the user drops files into
+- `/sorted` — the output Jellyfin library (cover.jpg, fanart.jpg, nfo, mp4)
+- `/download` — the input folder the user drops files into
 
 ## 2. Component responsibilities
 
 ### 2.1 Watcher
 
-- File: `internal/watcher/watcher.go`
-- Uses `fsnotify` to watch `/watch` recursively.
+- File: `internal/downloader/downloader.go`
+- Uses `fsnotify` to watch `/download` recursively.
 - Polling fallback (60 s interval) for filesystems without inotify.
 - Emits `NewFile(path string)` events to a channel consumed by the pipeline.
 
@@ -117,7 +117,7 @@ Three volume mounts:
 
 - File: `internal/organiser/organiser.go`
 - Receives a successful `(code, metadata, source_path)` triple.
-- Creates `<CODE> (<YEAR>)/` under `/library`.
+- Creates `<CODE> (<YEAR>)/` under `/sorted`.
 - Downloads cover + fanart → `<CODE> (<YEAR>)-poster.jpg` + `<CODE> (<YEAR>)-fanart.jpg`.
 - Downloads per-actress photos → `actors/`.
 - Renames + moves video file.
@@ -194,7 +194,7 @@ CREATE TABLE metadata_cache (
   plot         TEXT,
   actresses    TEXT,                    -- JSON array
   genres       TEXT,                    -- JSON array
-  cover_path   TEXT,                    -- local path under /library
+  cover_path   TEXT,                    -- local path under /sorted
   fanart_path  TEXT,
   source       TEXT NOT NULL,           -- which adapter populated this
   fetched_at   TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -345,11 +345,11 @@ server:
   log_level: info        # debug|info|warn|error
 
 paths:
-  watch: /watch
-  library: /library
-  review_filter: /library/review/_filter
-  review_unmatched: /library/review/_unmatched
-  review_duplicate: /library/review/_duplicate
+  watch: /download
+  library: /sorted
+  review_filter: /TBC/_filter
+  review_unmatched: /TBC/_unmatched
+  review_duplicate: /TBC/_duplicate
 
 scraping:
   default_qps: 1.0
@@ -398,7 +398,7 @@ rename:
   unknown_placeholder: "Unknown"
 ```
 
-All paths are within mounted volumes; if `/watch` doesn't exist on startup,
+All paths are within mounted volumes; if `/download` doesn't exist on startup,
 the watcher logs and waits.
 
 ## 8. Failure modes & recovery
@@ -424,7 +424,7 @@ the watcher logs and waits.
 - No external network egress except configured scrape sources.
 - Magnet URIs are not logged; never appear in API responses.
 - Container runs as non-root (UID 1000).
-- `read_only` root filesystem where possible; only `/config`, `/library`, `/watch` are writable.
+- `read_only` root filesystem where possible; only `/config`, `/sorted`, `/download` are writable.
 - No new outbound network capabilities added at runtime.
 
 ## 10. Update / migration strategy

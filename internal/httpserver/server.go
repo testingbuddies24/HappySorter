@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/testingbuddies24/HappySorter/internal/config"
+	"github.com/testingbuddies24/HappySorter/internal/logging"
 	"github.com/testingbuddies24/HappySorter/internal/pipeline"
 	"github.com/testingbuddies24/HappySorter/internal/scraper"
 	"github.com/testingbuddies24/HappySorter/internal/store"
@@ -33,16 +34,17 @@ type watcherControl interface {
 }
 
 type Server struct {
-	logger       *slog.Logger
-	startedAt    time.Time
-	mux          *http.ServeMux
-	cfgStore     *config.Store
-	fileStore    *store.FileStore
-	logStore     *store.LogStore
-	managerStore *scraper.ManagerStore
-	pipeline     *pipeline.Pipeline
-	watcher      watcherControl
-	httpClient   *http.Client
+	logger         *slog.Logger
+	startedAt      time.Time
+	mux            *http.ServeMux
+	cfgStore       *config.Store
+	fileStore      *store.FileStore
+	logStore       *store.LogStore
+	managerStore   *scraper.ManagerStore
+	pipeline       *pipeline.Pipeline
+	watcher        watcherControl
+	httpClient     *http.Client
+	logBroadcaster *logging.Broadcaster
 }
 
 // New builds the HTTP server. All dependencies are shared with the pipeline
@@ -58,18 +60,20 @@ func New(
 	pl *pipeline.Pipeline,
 	w *watcher.Watcher,
 	httpClient *http.Client,
+	logBroadcaster *logging.Broadcaster,
 ) *Server {
 	s := &Server{
-		logger:       logger,
-		startedAt:    time.Now(),
-		mux:          http.NewServeMux(),
-		cfgStore:     cfgStore,
-		fileStore:    fileStore,
-		logStore:     logStore,
-		managerStore: managerStore,
-		pipeline:     pl,
-		watcher:      w,
-		httpClient:   httpClient,
+		logger:         logger,
+		startedAt:      time.Now(),
+		mux:            http.NewServeMux(),
+		cfgStore:       cfgStore,
+		fileStore:      fileStore,
+		logStore:       logStore,
+		managerStore:   managerStore,
+		pipeline:       pl,
+		watcher:        w,
+		httpClient:     httpClient,
+		logBroadcaster: logBroadcaster,
 	}
 	s.routes()
 	return s
@@ -90,16 +94,32 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /setup/rename", s.handleRenameGet)
 	s.mux.HandleFunc("POST /setup/rename", s.handleRenamePost)
 
-	s.mux.HandleFunc("GET /review", s.handleReviewGet)
+	// TBC (formerly Review) — primary routes.
+	s.mux.HandleFunc("GET /tbc", s.handleReviewGet)
+	s.mux.HandleFunc("POST /tbc/retry", s.handleReviewRetry)
+	s.mux.HandleFunc("POST /tbc/delete", s.handleReviewDelete)
+	s.mux.HandleFunc("POST /tbc/empty", s.handleReviewEmpty)
+
+	// Backward-compat: keep old /review routes.
+	s.mux.HandleFunc("GET /review", s.handleReviewRedirect)
 	s.mux.HandleFunc("POST /review/retry", s.handleReviewRetry)
 	s.mux.HandleFunc("POST /review/delete", s.handleReviewDelete)
 	s.mux.HandleFunc("POST /review/empty", s.handleReviewEmpty)
 
 	s.mux.HandleFunc("GET /logs", s.handleLogs)
 
+	// JSON & plain-text log APIs for the dashboard.
+	s.mux.HandleFunc("GET /api/logs/stream", s.handleLogStream)
+	s.mux.HandleFunc("GET /api/logs/text", s.handleLogsText)
+
 	s.mux.HandleFunc("POST /rescan", s.handleRescan)
 	s.mux.HandleFunc("POST /pause", s.handlePause)
 	s.mux.HandleFunc("POST /resume", s.handleResume)
+}
+
+// handleReviewRedirect sends old /review links to /tbc.
+func (s *Server) handleReviewRedirect(w http.ResponseWriter, r *http.Request) {
+	redirectFlash(w, r, "/tbc", "The Review page has moved to TBC.", false)
 }
 
 var dashboardTmpl = template.Must(template.New("dashboard").Parse(`
@@ -112,6 +132,7 @@ var dashboardTmpl = template.Must(template.New("dashboard").Parse(`
   <form method="post" action="/rescan">
     <button type="submit">Trigger rescan</button>
   </form>
+  <button type="button" id="copy-logs">📋 Copy all logs</button>
 </div>
 
 <h2>Queue</h2>
@@ -120,21 +141,128 @@ var dashboardTmpl = template.Must(template.New("dashboard").Parse(`
   {{range .Counts}}<tr><td>{{.Label}}</td><td>{{.Count}}</td></tr>{{end}}
 </table>
 
-<h2>Recent activity</h2>
-<table>
-  <tr><th>Updated</th><th>State</th><th>Code</th><th>Path</th><th>Reason</th></tr>
-  {{range .Recent}}
-  <tr>
-    <td>{{.UpdatedAt.Format "2006-01-02 15:04:05"}}</td>
-    <td><span class="badge" data-state="{{.State}}">{{.State}}</span></td>
-    <td>{{.Code}}</td>
-    <td>{{.CurrentPath}}</td>
-    <td>{{.Reason}}</td>
-  </tr>
-  {{else}}
-  <tr><td colspan="5">Nothing processed yet — drop a file into the watch folder.</td></tr>
-  {{end}}
+<h2>Live activity <span style="font-weight:400;font-size:.8rem;color:var(--muted)">(streaming)</span></h2>
+<div class="toolbar">
+  <label style="display:inline;font-weight:400;margin:0"><input type="checkbox" id="auto-scroll" checked> Auto-scroll</label>
+  <select id="level-filter" style="width:auto;max-width:8rem">
+    <option value="">All</option>
+    <option value="DEBUG">Debug</option>
+    <option value="INFO">Info</option>
+    <option value="WARN">Warn</option>
+    <option value="ERROR">Error</option>
+  </select>
+</div>
+
+<table id="live-log">
+  <thead>
+    <tr><th style="width:9rem">Time</th><th>Level</th><th>Message</th><th>Fields</th></tr>
+  </thead>
+  <tbody>
+    <tr><td colspan="4">Waiting for activity…</td></tr>
+  </tbody>
 </table>
+
+<script>
+(() => {
+  const tbody = document.querySelector("#live-log tbody");
+  const autoScroll = document.getElementById("auto-scroll");
+  const levelFilter = document.getElementById("level-filter");
+  const copyBtn = document.getElementById("copy-logs");
+  let maxEntries = 200;
+
+  let first = true;
+
+  const es = new EventSource("/api/logs/stream");
+  es.onmessage = (ev) => {
+    try {
+      const r = JSON.parse(ev.data);
+      if (levelFilter.value && r.level.toUpperCase() !== levelFilter.value) return;
+      if (first) { tbody.textContent = ""; first = false; }
+
+      const tr = document.createElement("tr");
+      const time = formatTime(r.time);
+      const lvl = r.level;
+      const msg = esc(r.message);
+      const fields = esc(formatFields(r.fields));
+
+      const tdTime = document.createElement("td");
+      tdTime.textContent = time;
+      tr.appendChild(tdTime);
+
+      const tdLevel = document.createElement("td");
+      const badge = document.createElement("span");
+      badge.className = "badge";
+      badge.setAttribute("data-level", lvl.toLowerCase());
+      badge.textContent = lvl;
+      tdLevel.appendChild(badge);
+      tr.appendChild(tdLevel);
+
+      const tdMsg = document.createElement("td");
+      tdMsg.textContent = msg;
+      tr.appendChild(tdMsg);
+
+      const tdFields = document.createElement("td");
+      tdFields.textContent = fields;
+      tr.appendChild(tdFields);
+
+      tr.style.display = "none";
+      tbody.prepend(tr);
+      requestAnimationFrame(() => tr.style.display = "");
+
+      while (tbody.children.length > maxEntries) tbody.lastChild.remove();
+
+      if (autoScroll.checked) tr.scrollIntoView({block: "start"});
+    } catch {}
+  };
+  es.onerror = () => {};
+
+  levelFilter.addEventListener("change", () => {
+    first = true;
+    tbody.textContent = "";
+    const row = document.createElement("tr");
+    const td = document.createElement("td");
+    td.colSpan = 4;
+    td.textContent = "Filtering…";
+    row.appendChild(td);
+    tbody.appendChild(row);
+    es.close();
+    setTimeout(() => location.reload(), 50);
+  });
+
+  copyBtn.addEventListener("click", async () => {
+    try {
+      const resp = await fetch("/api/logs/text?limit=500");
+      const text = await resp.text();
+      await navigator.clipboard.writeText(text);
+      copyBtn.textContent = "✓ Copied!";
+      setTimeout(() => copyBtn.textContent = "📋 Copy all logs", 2000);
+    } catch (err) {
+      copyBtn.textContent = "✗ Failed";
+      setTimeout(() => copyBtn.textContent = "📋 Copy all logs", 2000);
+    }
+  });
+
+  function formatTime(t) {
+    if (!t) return "";
+    const d = new Date(t);
+    return d.getFullYear() + "-"
+      + String(d.getMonth()+1).padStart(2,"0") + "-"
+      + String(d.getDate()).padStart(2,"0") + " "
+      + String(d.getHours()).padStart(2,"0") + ":"
+      + String(d.getMinutes()).padStart(2,"0") + ":"
+      + String(d.getSeconds()).padStart(2,"0");
+  }
+  function esc(s) {
+    const d = document.createElement("div");
+    d.textContent = s || "";
+    return d.textContent;
+  }
+  function formatFields(f) {
+    if (!f || Object.keys(f).length === 0) return "";
+    return Object.entries(f).map(([k, v]) => k + "=" + JSON.stringify(v)).join(" ");
+  }
+})();
+</script>
 `))
 
 type countRow struct {
@@ -151,9 +279,9 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 	labels := map[store.FileState]string{
 		store.StateScrape:          "Queued (awaiting scrape)",
 		store.StateDone:            "Organised",
-		store.StateReviewFilter:    "Review: filtered",
-		store.StateReviewUnmatched: "Review: unmatched",
-		store.StateReviewDuplicate: "Review: duplicate",
+		store.StateReviewFilter:    "TBC: filtered",
+		store.StateReviewUnmatched: "TBC: unmatched",
+		store.StateReviewDuplicate: "TBC: duplicate",
 		store.StateFailed:          "Failed",
 	}
 	counts := make([]countRow, 0, len(states))
@@ -165,24 +293,17 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		counts = append(counts, countRow{Label: labels[st], Count: n})
 	}
 
-	recent, err := s.fileStore.ListRecent(20)
-	if err != nil {
-		s.logger.Error("listing recent files", "error", err)
-	}
-
 	var buf bytes.Buffer
-	err = dashboardTmpl.Execute(&buf, struct {
+	err := dashboardTmpl.Execute(&buf, struct {
 		Version   string
 		StartedAt string
 		Paused    bool
 		Counts    []countRow
-		Recent    []store.FileRecord
 	}{
 		Version:   Version,
 		StartedAt: s.startedAt.Format(time.RFC3339),
 		Paused:    s.watcher.Paused(),
 		Counts:    counts,
-		Recent:    recent,
 	})
 	if err != nil {
 		s.logger.Error("rendering dashboard", "error", err)

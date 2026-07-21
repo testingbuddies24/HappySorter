@@ -7,12 +7,12 @@ services:
       - "8080:8080"
     volumes:
       - ./config:/config             # DB + config.yaml
-      - ./library:/library           # organised library output
-      - ./watch:/watch                # drop folder (must be writable — HappySorter moves files out of it)
+      - ./sorted:/sorted             # organised library output
+      - ./download:/download          # drop folder (must be writable — HappySorter moves files out of it)
     environment:
       - TZ=UTC
     # Hardening (see docs/DEPLOYMENT.md § 10): the app only ever writes under
-    # /config, /library, and /watch (all bind-mounted above), so the
+    # /config, /sorted, and /download (all bind-mounted above), so the
     # container root filesystem can be fully read-only.
     read_only: true
     security_opt:
