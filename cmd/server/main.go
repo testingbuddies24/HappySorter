@@ -48,7 +48,8 @@ func run() error {
 	}
 	defer db.Close()
 
-	logger := logging.New(cfg.Server.LogLevel, db)
+	logBroadcaster := logging.NewBroadcaster()
+	logger := logging.New(cfg.Server.LogLevel, db, logBroadcaster)
 	slog.SetDefault(logger)
 	logger.Info("starting HappySorter", "config", configPath, "db", dbPath)
 
@@ -68,7 +69,7 @@ func run() error {
 
 	pl := pipeline.New(cfgStore, fileStore, metaStore, managerStore, org, logger)
 
-	srv := httpserver.New(logger, cfgStore, fileStore, logStore, managerStore, pl, fileWatcher, httpClient)
+	srv := httpserver.New(logger, cfgStore, fileStore, logStore, managerStore, pl, fileWatcher, httpClient, logBroadcaster)
 	httpSrv := &http.Server{
 		Addr:    fmt.Sprintf(":%d", cfg.Server.Port),
 		Handler: srv.Handler(),

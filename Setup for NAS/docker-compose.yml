@@ -1,0 +1,17 @@
+services:
+  happy-sorter:
+    image: ghcr.io/testingbuddies24/happy-sorter:1.0.1
+    container_name: happy-sorter
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    volumes:
+      - /volume1/docker/happy-sorter/config:/config
+      - /volume1/GG/sorted:/sorted
+      - /volume1/GG/download:/download
+    environment:
+      - TZ=Australia/Sydney
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    user: "1000:1000"

@@ -62,11 +62,11 @@ func Default() *Config {
 			LogLevel: "info",
 		},
 		Paths: PathsConfig{
-			Watch:           "/watch",
-			Library:         "/library",
-			ReviewFilter:    "/library/review/_filter",
-			ReviewUnmatched: "/library/review/_unmatched",
-			ReviewDuplicate: "/library/review/_duplicate",
+			Watch:           "/download",
+			Library:         "/sorted",
+			ReviewFilter:    "/TBC/_filter",
+			ReviewUnmatched: "/TBC/_unmatched",
+			ReviewDuplicate: "/TBC/_duplicate",
 		},
 		Scraping: ScrapingConfig{
 			DefaultQPS:     1.0,

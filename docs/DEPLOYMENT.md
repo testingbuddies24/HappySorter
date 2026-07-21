@@ -8,7 +8,7 @@
 - A NAS (Synology DSM 7.x, QNAP QTS, or any x86_64 / arm64 Linux host).
 - Docker installed (Container Manager on DSM; Container Station on QTS).
 - ~200 MB free disk for the Docker image.
-- A folder you want HappySorter to watch (e.g. `/volume1/data/watch`).
+- A folder you want HappySorter to watch (e.g. `/volume1/data/download`).
 - A folder where the organised library should live (e.g. `/volume1/data/jav`).
 - Jellyfin (or any Kodi-compatible media server) optionally pointed at the library folder.
 
@@ -20,18 +20,18 @@ docker run -d \
   --restart unless-stopped \
   -p 8080:8080 \
   -v /volume1/data/happy-sorter/config:/config \
-  -v /volume1/data/jav:/library \
-  -v /volume1/data/watch:/watch \
+  -v /volume1/data/jav:/sorted \
+  -v /volume1/data/download:/download \
   ghcr.io/testingbuddies24/happy-sorter:latest
 ```
 
 What this does:
 - `-p 8080:8080` — exposes the setup GUI at `http://<nas-ip>:8080`.
 - `/config` — holds `config.yaml` and `happy-sorter.db` (DB).
-- `/library` — the output Jellyfin-compatible library (writable).
-- `/watch` — the input drop folder. **Must be writable**: HappySorter moves
-  rubbish, unmatched, and duplicate files out of it into `review/_filter/`,
-  `review/_unmatched/`, and `review/_duplicate/` under `/library` (F2/F6),
+- `/sorted` — the output Jellyfin-compatible library (writable).
+- `/download` — the input drop folder. **Must be writable**: HappySorter moves
+  rubbish, unmatched, and duplicate files out of it into `/TBC/_filter/`,
+  `/TBC/_unmatched/`, and `/TBC/_duplicate/` (F2/F6),
   and moves matched files into the organised library (F5). A read-only
   mount would break this.
 
@@ -49,8 +49,8 @@ services:
       - "8080:8080"
     volumes:
       - ./config:/config                       # DB + config.yaml
-      - /volume1/data/jav:/library             # organised library output
-      - /volume1/data/watch:/watch              # drop folder (writable — see § 2)
+      - /volume1/data/jav:/sorted             # organised library output
+      - /volume1/data/download:/download              # drop folder (writable — see § 2)
     environment:
       - TZ=Asia/Hong_Kong                      # match your NAS timezone
     # Hardening (§ 10) — on by default; the app only ever writes under the
@@ -70,13 +70,13 @@ docker compose logs -f happy-sorter
 ## 4. First-run setup (web GUI)
 
 1. Open `http://<nas-ip>:8080` → Status dashboard.
-2. Go to **Setup → Folders** → confirm the paths shown match your mounts (`/watch`, `/library`, `/library/review/...`). This page is read-only — the paths are set by the docker-compose bind mounts, so changing them means editing `docker-compose.yml` and restarting the container.
+2. Go to **Setup → Folders** → confirm the paths shown match your mounts (`/download`, `/sorted`, `/TBC/...`). This page is read-only — the paths are set by the docker-compose bind mounts, so changing them means editing `docker-compose.yml` and restarting the container.
 3. Go to **Setup → Sources** → enable at least one scrape source, set its priority (1 = tried first). Save.
    - Start with the **studio-direct sources** (`s1`, `ideapocket`) — they work from any IP with no proxy.
    - The **aggregators** `javbus` and `javdb` also work from any IP with no proxy — despite the name, `§ 4a` below is not needed for either of them. `javlibrary` is listed in config but has no adapter yet (still blocked on a genuine Cloudflare challenge; see `docs/ROADMAP.md` M4b).
 4. (Optional) Go to **Setup → Rename** → tweak folder/file templates. Save.
-5. Drop a test file (e.g. `SSIS-001.mp4`) into the `/watch` folder.
-6. Watch the dashboard — the file should land in `/library/SSIS-001 (2018)/` with cover, fanart, nfo. Small local drops appear within seconds; a large file copied over the network is deliberately left alone until it stops growing, then picked up by the next scan — allow up to ~90 s after the copy finishes.
+5. Drop a test file (e.g. `SSIS-001.mp4`) into the `/download` folder.
+6. Watch the dashboard — the file should land in `/sorted/SSIS-001 (2018)/` with cover, fanart, nfo. Small local drops appear within seconds; a large file copied over the network is deliberately left alone until it stops growing, then picked up by the next scan — allow up to ~90 s after the copy finishes.
 
 If nothing happens, check **Logs** in the GUI.
 
@@ -148,9 +148,9 @@ Jellyfin library config:
 ### Synology DSM 7.x
 
 - Open **Container Manager** → **Project** → **Create** → paste the docker-compose.yml.
-- For `/watch` to be visible, the host path must be under `/volume1/...` (DSM's main volume) or another defined volume.
+- For `/download` to be visible, the host path must be under `/volume1/...` (DSM's main volume) or another defined volume.
 - File watcher (`fsnotify`) works on Btrfs and ext4 inside `/volume1/`.
-- If you drop files via SMB into `/watch`, inotify events may be delayed by 1–5 s; this is normal.
+- If you drop files via SMB into `/download`, inotify events may be delayed by 1–5 s; this is normal.
 
 ### QNAP QTS / QuTS hero
 
@@ -159,10 +159,10 @@ Jellyfin library config:
 - For arm64 QNAP NAS (e.g. TS-253D), confirm the image tag supports arm64:
   `docker manifest inspect ghcr.io/testingbuddies24/happy-sorter:latest | grep arm64`.
 
-### NFS / SMB shares as `/watch`
+### NFS / SMB shares as `/download`
 
 - `fsnotify` does not reliably receive inotify events on remote-mounted filesystems.
-- HappySorter falls back to a 60-second polling scan of `/watch` when no events arrive.
+- HappySorter falls back to a 60-second polling scan of `/download` when no events arrive.
 - This is automatic; no configuration needed.
 
 ### Low-RAM NAS (≤ 1 GB total)
@@ -176,7 +176,7 @@ Jellyfin library config:
 Minimum to back up:
 - `./config/` (contains the SQLite DB; restoring this restores HappySorter's memory of what's already processed).
 
-The library folder (`/library`) is just files — back it up however you back up the rest of your NAS media.
+The library folder (`/sorted`) is just files — back it up however you back up the rest of your NAS media.
 
 Restore procedure:
 1. `docker compose down`
@@ -205,11 +205,11 @@ image: ghcr.io/testingbuddies24/happy-sorter:1.0.0
 | GUI doesn't load                       | Port 8080 blocked; wrong NAS IP             | Check `docker ps`, NAS firewall |
 | Files dropped, nothing happens         | Watcher paused; source not enabled          | Resume in dashboard; enable source in Setup → Sources |
 | File takes a minute+ to be picked up   | It was still copying — HappySorter waits until a file stops changing before touching it | Normal; it's processed by the next scan after the copy finishes |
-| All files end up in `review/_unmatched/` | Source site is down; code regex too strict | Check Logs; try a different source |
-| File ends up in `review/_duplicate/`   | A release for that code already exists in the library | Compare the two files by hand, then delete one; the existing library release was left untouched |
+| All files end up in `TBC/_unmatched/` | Source site is down; code regex too strict | Check Logs; try a different source |
+| File ends up in `TBC/_duplicate/`   | A release for that code already exists in the library | Compare the two files by hand, then delete one; the existing library release was left untouched |
 | A source that used to work now `403`s   | Your NAS's IP got rate-limited/flagged by that site | Set a Proxy URL (§ 4a); other sources are unaffected in the meantime |
 | Cover image is a placeholder            | Source returned no cover                   | Try another source; manually drop cover into the folder |
-| `permission denied` on `/library`      | UID mismatch between container and NAS      | Set `user: "1000:1000"` in compose and `chown -R 1000:1000 /volume1/data/jav` |
+| `permission denied` on `/sorted`      | UID mismatch between container and NAS      | Set `user: "1000:1000"` in compose and `chown -R 1000:1000 /volume1/data/jav` |
 | Container restarts repeatedly          | Crash in pipeline                           | `docker logs happy-sorter` — share the tail |
 
 ## 10. Hardening checklist
@@ -218,7 +218,7 @@ The image and `docker-compose.yml` in this repo already do the first three:
 
 - [x] Container runs as non-root (UID 1000) — baked into the `Dockerfile`.
 - [x] `read_only: true` on the container root FS — the app only ever writes
-      under `/config`, `/library`, and `/watch` (all bind-mounted), so this
+      under `/config`, `/sorted`, and `/download` (all bind-mounted), so this
       is reasoned safe by code inspection. Not yet run under an actual
       read-only container on real hardware — if you hit a startup error
       after enabling this, that's the first thing to report.
@@ -237,5 +237,5 @@ Up to you:
 ```bash
 docker compose down --rmi all
 rm -rf ./config
-# (keep /library and /watch — those are your files)
+# (keep /sorted and /download — those are your files)
 ```

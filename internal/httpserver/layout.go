@@ -134,14 +134,14 @@ var layoutTmpl = template.Must(template.New("layout").Parse(`<!DOCTYPE html>
     }
     button:hover { background: var(--accent-hover); }
     /* Secondary + destructive variants keyed off the form's action. */
-    form[action="/rescan"] button, form[action="/review/retry"] button {
+    form[action="/rescan"] button, form[action="/review/retry"] button, form[action="/tbc/retry"] button {
       background: var(--surface); color: var(--text); border-color: var(--border);
     }
-    form[action="/rescan"] button:hover, form[action="/review/retry"] button:hover { background: var(--surface-2); }
-    form[action="/review/delete"] button, form[action="/review/empty"] button {
+    form[action="/rescan"] button:hover, form[action="/review/retry"] button:hover, form[action="/tbc/retry"] button:hover { background: var(--surface-2); }
+    form[action="/review/delete"] button, form[action="/review/empty"] button, form[action="/tbc/delete"] button, form[action="/tbc/empty"] button {
       background: var(--surface); color: var(--err); border-color: color-mix(in srgb, var(--err) 40%, transparent);
     }
-    form[action="/review/delete"] button:hover, form[action="/review/empty"] button:hover { background: var(--err-soft); }
+    form[action="/review/delete"] button:hover, form[action="/review/empty"] button:hover, form[action="/tbc/delete"] button:hover, form[action="/tbc/empty"] button:hover { background: var(--err-soft); }
     .row-actions form { display: inline; margin-right: .3rem; }
   </style>
 </head>
@@ -153,7 +153,7 @@ var layoutTmpl = template.Must(template.New("layout").Parse(`<!DOCTYPE html>
       <a href="/setup/folders"{{if eq .Path "/setup/folders"}} class="active"{{end}}>Folders</a>
       <a href="/setup/sources"{{if eq .Path "/setup/sources"}} class="active"{{end}}>Sources</a>
       <a href="/setup/rename"{{if eq .Path "/setup/rename"}} class="active"{{end}}>Rename</a>
-      <a href="/review"{{if eq .Path "/review"}} class="active"{{end}}>Review</a>
+      <a href="/tbc"{{if eq .Path "/tbc"}} class="active"{{end}}>TBC</a>
       <a href="/logs"{{if eq .Path "/logs"}} class="active"{{end}}>Logs</a>
     </nav>
   </header>

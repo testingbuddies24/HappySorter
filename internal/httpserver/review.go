@@ -16,6 +16,12 @@ then click Retry — or Delete to discard the file and its record.</p>
 
 {{range .Sections}}
 <h2>{{.Title}}</h2>
+{{if eq .Title "Filtered (rejected as junk/sample)"}}
+<form method="post" action="/tbc/empty" onsubmit="return confirm('Delete ALL junk files from disk? This cannot be undone.');" style="margin-bottom:.5rem">
+  <input type="hidden" name="state" value="review_filter">
+  <button type="submit">Delete all junk</button>
+</form>
+{{end}}
 <table>
   <tr><th>Updated</th><th>Code</th><th>Path</th><th>Reason</th><th>Actions</th></tr>
   {{range .Files}}
@@ -25,8 +31,8 @@ then click Retry — or Delete to discard the file and its record.</p>
     <td>{{.CurrentPath}}</td>
     <td>{{.Reason}}</td>
     <td class="row-actions">
-      <form method="post" action="/review/retry"><input type="hidden" name="id" value="{{.ID}}"><button type="submit">Retry</button></form>
-      <form method="post" action="/review/delete" onsubmit="return confirm('Delete this file from disk?');"><input type="hidden" name="id" value="{{.ID}}"><button type="submit">Delete</button></form>
+      <form method="post" action="/tbc/retry"><input type="hidden" name="id" value="{{.ID}}"><button type="submit">Retry</button></form>
+      <form method="post" action="/tbc/delete" onsubmit="return confirm('Delete this file from disk?');"><input type="hidden" name="id" value="{{.ID}}"><button type="submit">Delete</button></form>
     </td>
   </tr>
   {{else}}
@@ -68,7 +74,7 @@ func (s *Server) handleReviewGet(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
-	s.render(w, r, "Review", template.HTML(buf.String()))
+	s.render(w, r, "TBC", template.HTML(buf.String()))
 }
 
 func (s *Server) handleReviewRetry(w http.ResponseWriter, r *http.Request) {
@@ -80,7 +86,7 @@ func (s *Server) handleReviewRetry(w http.ResponseWriter, r *http.Request) {
 	rec, err := s.fileStore.GetByID(id)
 	if err != nil {
 		s.logger.Error("looking up review file", "id", id, "error", err)
-		redirectFlash(w, r, "/review", "Could not find that file.", true)
+		redirectFlash(w, r, "/tbc", "Could not find that file.", true)
 		return
 	}
 
@@ -89,7 +95,7 @@ func (s *Server) handleReviewRetry(w http.ResponseWriter, r *http.Request) {
 	}
 	s.pipeline.Retry(r.Context(), rec.CurrentPath)
 
-	redirectFlash(w, r, "/review", "Retried "+rec.CurrentPath+".", false)
+	redirectFlash(w, r, "/tbc", "Retried "+rec.CurrentPath+".", false)
 }
 
 func (s *Server) handleReviewDelete(w http.ResponseWriter, r *http.Request) {
@@ -101,20 +107,20 @@ func (s *Server) handleReviewDelete(w http.ResponseWriter, r *http.Request) {
 	rec, err := s.fileStore.GetByID(id)
 	if err != nil {
 		s.logger.Error("looking up review file", "id", id, "error", err)
-		redirectFlash(w, r, "/review", "Could not find that file.", true)
+		redirectFlash(w, r, "/tbc", "Could not find that file.", true)
 		return
 	}
 
 	if err := os.Remove(rec.CurrentPath); err != nil && !os.IsNotExist(err) {
 		s.logger.Error("deleting review file from disk", "path", rec.CurrentPath, "error", err)
-		redirectFlash(w, r, "/review", "Failed to delete file from disk: "+err.Error(), true)
+		redirectFlash(w, r, "/tbc", "Failed to delete file from disk: "+err.Error(), true)
 		return
 	}
 	if err := s.fileStore.Delete(id); err != nil {
 		s.logger.Error("deleting review record", "id", id, "error", err)
 	}
 
-	redirectFlash(w, r, "/review", "Deleted "+rec.CurrentPath+".", false)
+	redirectFlash(w, r, "/tbc", "Deleted "+rec.CurrentPath+".", false)
 }
 
 // handleReviewEmpty bulk-deletes every file (disk + record) in a given
@@ -124,7 +130,7 @@ func (s *Server) handleReviewEmpty(w http.ResponseWriter, r *http.Request) {
 	files, err := s.fileStore.ListByStates(state)
 	if err != nil {
 		s.logger.Error("listing files to empty", "state", state, "error", err)
-		redirectFlash(w, r, "/review", "Failed to list files: "+err.Error(), true)
+		redirectFlash(w, r, "/tbc", "Failed to list files: "+err.Error(), true)
 		return
 	}
 
@@ -138,5 +144,5 @@ func (s *Server) handleReviewEmpty(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	redirectFlash(w, r, "/review", "Cleared.", false)
+	redirectFlash(w, r, "/tbc", "Cleared.", false)
 }

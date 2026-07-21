@@ -35,34 +35,34 @@ Dockerfile follows the same multi-stage pattern documented in
 
 **Goal:** dropped files get triaged into review folders correctly.
 
-- `fsnotify` watcher on `/watch` with polling fallback (60s) and an initial
+- `fsnotify` watcher on `/download` with polling fallback (60s) and an initial
   full scan on startup, so nothing dropped while offline is missed.
 - Rubbish filter (extension allow-list, 50MB size floor, junk-extension and
   junk-substring patterns) → `review/_filter/`.
 - Code extractor (normalise + regex `^([A-Z0-9]{2,5})-?(\d{2,5})$`, release-suffix
   stripping) → on miss, `review/_unmatched/`.
 - Cross-device-safe move helper (rename first, copy+rename+remove fallback for
-  when `/watch` and `/library` are separate volumes).
+  when `/download` and `/sorted` are separate volumes).
 - `files` table records every seen file + its state; `Seen()` lookup makes
   processing idempotent across restarts, regardless of which of the three
   detection paths (startup scan, fsnotify, poll) re-emits a path.
 - `/healthz`'s `queue_size` now reports the live count of files in `scrape`
   state (extracted, awaiting Milestone 2's scraper).
 
-**Verify:** dropped `SSIS-001.mp4` (51MB) → stayed in `/watch`, `files` row
+**Verify:** dropped `SSIS-001.mp4` (51MB) → stayed in `/download`, `files` row
 `state=scrape, code=SSIS-001`; `notes.txt` → moved to `review/_filter/`,
 `state=review_filter, reason="junk extension .txt"`; `random.mp4` (51MB, no
 code) → moved to `review/_unmatched/`, `state=review_unmatched, reason="no
 JAV code found in filename"`. Restarted the process with `SSIS-001.mp4`
 still in place → no new log entries, no duplicate `files` rows, `queue_size`
 unchanged. `go build`, `go vet`, `gofmt -l` all clean. (Verified by running
-the binary directly against a scratch watch/library tree; Docker image
+the binary directly against a scratch watch/sorted tree; Docker image
 build still unverified in this environment, per M0's note.)
 
 Also fixed while building this milestone: `docker-compose.yml`, `README.md`,
-and `DEPLOYMENT.md` previously mounted `/watch` read-only (`:ro`), which
+and `DEPLOYMENT.md` previously mounted `/download` read-only (`:ro`), which
 directly contradicted this milestone's requirement to move files out of
-`/watch` — corrected to a writable mount in all three places.
+`/download` — corrected to a writable mount in all three places.
 
 ## Milestone 2 — First scraper (S1) → organise → NFO ✅ done
 
@@ -99,10 +99,10 @@ directly contradicted this milestone's requirement to move files out of
   need them.
 
 **Verify:** ran the built binary directly (no Docker in this dev environment,
-consistent with M0/M1's caveat) against a scratch watch/library tree with
+consistent with M0/M1's caveat) against a scratch watch/sorted tree with
 `s1` enabled in config:
 - Real code `SSIS-001.mp4` (60MB) → scraped live from `s1s1s1.com`,
-  organised within ~2s into `/library/SSIS-001 (2021)/` containing the
+  organised within ~2s into `/sorted/SSIS-001 (2021)/` containing the
   renamed video, `poster.jpg`, `fanart.jpg`, `backdrop.jpg`, and a
   `movie.nfo` with correct title/plot/runtime/genres/actresses/director in
   Japanese — `files.state=done`.
@@ -114,7 +114,7 @@ consistent with M0/M1's caveat) against a scratch watch/library tree with
   reason="scrape failed: all sources failed for code ZFAK-999"`.
 - `go build`, `go vet`, `gofmt -l` all clean.
 - Not verified in this environment: pointing an actual Jellyfin instance at
-  `/library` and confirming it renders the metadata (no Jellyfin install
+  `/sorted` and confirming it renders the metadata (no Jellyfin install
   available here) — the NFO/image/folder layout matches the Kodi schema
   Jellyfin expects, but this last hop is unverified.
 
@@ -200,7 +200,7 @@ folder (see `testbed/README.md`) rather than a throwaway scratch dir:
 - `go build`, `go vet`, `gofmt -l` all clean.
 
 Not fixed in this milestone (pre-existing, identified during testing, out
-of scope for the GUI work): a slow/racy file write into `/watch` can have
+of scope for the GUI work): a slow/racy file write into `/download` can have
 its `Create` event fire before the file is fully sized, so the rubbish
 filter misclassifies a good file as empty; because `Seen()` blocks
 reprocessing of any previously-recorded path, this is a permanent
@@ -360,7 +360,7 @@ fallback mechanics work end-to-end on a real second source.
   grepping every filesystem write in the codebase
   (`os.Create`/`os.WriteFile`/`os.MkdirAll`/`os.CreateTemp` across
   `config`, `fsutil`, `nfo`, `organiser`) — all of them land under
-  `/config`, `/library`, or `/watch`, the three bind-mounted volumes. One
+  `/config`, `/sorted`, or `/download`, the three bind-mounted volumes. One
   caveat grep can't rule out: the `modernc.org/sqlite` driver could in
   principle want scratch space outside `/config` in some mode; this hasn't
   been exercised under an actual read-only container yet, so treat this as

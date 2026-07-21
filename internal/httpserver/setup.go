@@ -18,26 +18,26 @@ import (
 var foldersTmpl = template.Must(template.New("folders").Parse(`
 <p class="hint">
   <strong>These paths are set by docker-compose</strong> (the bind-mounts under
-  <code>/watch</code>, <code>/library</code>, and
-  <code>/library/review/...</code>). Edit <code>docker-compose.yml</code> and
+  /<code>/download</code>, <code>/sorted</code>, and
+  <code>/TBC/...</code>). Edit <code>docker-compose.yml</code> and
   restart the container to change them — values shown below are
   informational only.
 </p>
 
 <dl>
-  <dt>Watch folder</dt>
+  <dt>Download folder</dt>
   <dd><code>{{.Watch}}</code></dd>
 
-  <dt>Library folder</dt>
+  <dt>Sorted (library) folder</dt>
   <dd><code>{{.Library}}</code></dd>
 
-  <dt>Review: filtered</dt>
+  <dt>TBC: filtered</dt>
   <dd><code>{{.ReviewFilter}}</code></dd>
 
-  <dt>Review: unmatched</dt>
+  <dt>TBC: unmatched</dt>
   <dd><code>{{.ReviewUnmatched}}</code></dd>
 
-  <dt>Review: duplicate</dt>
+  <dt>TBC: duplicate</dt>
   <dd><code>{{.ReviewDuplicate}}</code></dd>
 </dl>
 `))

@@ -2,9 +2,11 @@ package httpserver
 
 import (
 	"bytes"
+	"fmt"
 	"html/template"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/testingbuddies24/HappySorter/internal/store"
 )
@@ -69,4 +71,38 @@ func (s *Server) handleLogs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.render(w, r, "Logs", template.HTML(buf.String()))
+}
+
+// handleLogsText returns log entries as plain text for one-click copy.
+func (s *Server) handleLogsText(w http.ResponseWriter, r *http.Request) {
+	limit := 500
+	if v, err := strconv.Atoi(r.URL.Query().Get("limit")); err == nil && v > 0 {
+		limit = v
+	}
+	level := r.URL.Query().Get("level")
+
+	records, err := s.logStore.Tail(limit, level)
+	if err != nil {
+		s.logger.Error("tailing logs for text export", "error", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	var buf bytes.Buffer
+	for _, rec := range records {
+		fmt.Fprintf(&buf, "[%s] [%s] %s",
+			rec.Time.Format("2006-01-02 15:04:05"),
+			strings.ToUpper(rec.Level),
+			rec.Message,
+		)
+		if rec.Fields != "" && rec.Fields != "{}" {
+			fmt.Fprintf(&buf, " %s", rec.Fields)
+		}
+		buf.WriteByte('\n')
+	}
+	if buf.Len() == 0 {
+		buf.WriteString("(no log entries)\n")
+	}
+	w.Write(buf.Bytes())
 }

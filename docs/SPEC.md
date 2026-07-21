@@ -59,7 +59,7 @@ streaming to non-LAN clients. This is a single-household appliance.
 
 The system shall:
 
-- Watch a user-configured input folder (default `/watch`).
+- Watch a user-configured input folder (default `/download`).
 - Detect new video files (`.mp4`, `.mkv`, `.avi`, `.wmv`, `.mov`, `.flv`, `.rmvb`, `.ts`).
 - Enqueue each new file for processing.
 - Be idempotent: re-running on the same folder does not duplicate work.
@@ -198,7 +198,7 @@ The GUI is **not** a library browser. The library is browsed in Jellyfin.
 | Cold start       | Container ready to serve GUI in < 3 s                         |
 | Scrape latency   | First source response within 10 s on a typical NAS             |
 | Throughput       | Process 1 new file every ~5 s during bulk import              |
-| Backup           | `cp` of `/config/` (DB) + `/library/` (media) is sufficient   |
+| Backup           | `cp` of `/config/` (DB) + `/sorted/` (media) is sufficient   |
 | Crash recovery   | Watcher state restored from DB on restart                    |
 | Update           | Pull new image, restart container; config & media untouched  |
 | Architectures    | `linux/amd64`, `linux/arm64` (Synology DS220+, QNAP TBS-453) |

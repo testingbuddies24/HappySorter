@@ -9,18 +9,63 @@ import (
 	"encoding/json"
 	"log/slog"
 	"os"
+	"sync"
 )
+
+// Broadcaster fans out log records to subscribers for real-time SSE delivery.
+type Broadcaster struct {
+	mu   sync.RWMutex
+	subs map[int]chan slog.Record
+	next int
+}
+
+// NewBroadcaster creates a Broadcaster ready for subscribers.
+func NewBroadcaster() *Broadcaster {
+	return &Broadcaster{subs: make(map[int]chan slog.Record)}
+}
+
+// Subscribe returns a channel that receives new log records and a func to
+// call when the subscriber disconnects. The channel is buffered so a slow
+// client doesn't block the logger.
+func (b *Broadcaster) Subscribe() (<-chan slog.Record, func()) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	id := b.next
+	b.next++
+	ch := make(chan slog.Record, 64)
+	b.subs[id] = ch
+	unsub := func() {
+		b.mu.Lock()
+		defer b.mu.Unlock()
+		delete(b.subs, id)
+	}
+	return ch, unsub
+}
+
+// Broadcast fans r out to every active subscriber. Slow subscribers whose
+// buffers are full are skipped (non-blocking send).
+func (b *Broadcaster) Broadcast(r slog.Record) {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	for _, ch := range b.subs {
+		select {
+		case ch <- r:
+		default:
+		}
+	}
+}
 
 // New builds a slog.Logger at the given level ("debug", "info", "warn",
 // "error"; defaults to info). If db is non-nil, records are also persisted
-// to the `logs` table.
-func New(level string, db *sql.DB) *slog.Logger {
+// to the `logs` table. If bc is non-nil, records are also broadcast to SSE
+// subscribers.
+func New(level string, db *sql.DB, bc *Broadcaster) *slog.Logger {
 	lvl := parseLevel(level)
 	handlers := []slog.Handler{
 		slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: lvl}),
 	}
 	if db != nil {
-		handlers = append(handlers, &dbHandler{db: db, level: lvl})
+		handlers = append(handlers, &dbHandler{db: db, level: lvl, bc: bc})
 	}
 	return slog.New(&multiHandler{handlers: handlers})
 }
@@ -85,6 +130,7 @@ type dbHandler struct {
 	db       *sql.DB
 	level    slog.Level
 	preAttrs []slog.Attr
+	bc       *Broadcaster
 }
 
 func (h *dbHandler) Enabled(_ context.Context, level slog.Level) bool {
@@ -110,6 +156,9 @@ func (h *dbHandler) Handle(ctx context.Context, r slog.Record) error {
 		`INSERT INTO logs (level, message, fields, ts) VALUES (?, ?, ?, ?)`,
 		r.Level.String(), r.Message, string(fieldsJSON), r.Time,
 	)
+	if h.bc != nil {
+		h.bc.Broadcast(r)
+	}
 	return err
 }
 
@@ -117,7 +166,7 @@ func (h *dbHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
 	next := make([]slog.Attr, 0, len(h.preAttrs)+len(attrs))
 	next = append(next, h.preAttrs...)
 	next = append(next, attrs...)
-	return &dbHandler{db: h.db, level: h.level, preAttrs: next}
+	return &dbHandler{db: h.db, level: h.level, preAttrs: next, bc: h.bc}
 }
 
 func (h *dbHandler) WithGroup(_ string) slog.Handler { return h }
