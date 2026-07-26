@@ -9,10 +9,11 @@ services:
       - ./config:/config             # DB + config.yaml
       - ./sorted:/sorted             # organised library output
       - ./download:/download          # drop folder (must be writable — HappySorter moves files out of it)
+      - ./TBC:/TBC                   # filtered/unmatched/duplicate files awaiting manual review
     environment:
       - TZ=UTC
     # Hardening (see docs/DEPLOYMENT.md § 10): the app only ever writes under
-    # /config, /sorted, and /download (all bind-mounted above), so the
+    # /config, /sorted, /download, and /TBC (all bind-mounted above), so the
     # container root filesystem can be fully read-only.
     read_only: true
     security_opt:

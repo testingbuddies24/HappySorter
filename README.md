@@ -72,7 +72,7 @@ queued for scraping while no source was enabled now drain automatically
 the moment a source is turned on — no restart, no manual retry. Everything
 is configurable from the web GUI without editing YAML by hand:
 `/setup/sources` (including a proxy URL field for Cloudflare-gated
-sources), `/setup/rename`, a `/review` queue with retry/delete, `/logs`,
+sources), `/setup/rename`, a `/tbc` queue with retry/delete, `/logs`,
 and `/rescan`/`/pause`/`/resume` controls — sources and rename templates
 hot-reload without a restart. Folder paths are owned by the
 docker-compose bind mounts; `/setup/folders` shows them read-only. Missing or failed cover
