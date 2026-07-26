@@ -9,8 +9,13 @@
 package organiser
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"image"
+	"image/draw"
+	"image/jpeg"
+	_ "image/png"
 	"io"
 	"net/http"
 	"net/url"
@@ -24,6 +29,46 @@ import (
 	"github.com/testingbuddies24/HappySorter/internal/nfo"
 	"github.com/testingbuddies24/HappySorter/internal/scraper"
 )
+
+// frontCoverRatio is cropWidth/height for isolating the front-cover panel out
+// of the wraparound package scan every current source serves as CoverURL
+// (back-cover blurb + spine + front cover, all in one image). Derived from a
+// known-good reference: an older tool's output had a 378x538 front-only
+// poster next to an 800x538 full package image for the same release
+// (378/538 = 0.7026), and the same ratio applied to an 800x438 copy of that
+// same title from a different source lands cleanly on the front art too —
+// the crop is relative to height, not a fixed pixel offset, so it survives
+// sources serving the package scan at different resolutions.
+const frontCoverRatio = 378.0 / 538.0
+
+// cropFrontCover isolates the front-cover panel from a wraparound package
+// scan: the front art sits in the rightmost frontCoverRatio*height pixels.
+// Returns re-encoded JPEG bytes, or an error if raw isn't a decodable image
+// or is already narrower than the computed crop (caller should fall back to
+// writing raw unmodified rather than lose the cover entirely).
+func cropFrontCover(raw []byte) ([]byte, error) {
+	img, _, err := image.Decode(bytes.NewReader(raw))
+	if err != nil {
+		return nil, fmt.Errorf("decoding cover image: %w", err)
+	}
+
+	b := img.Bounds()
+	w, h := b.Dx(), b.Dy()
+	cropW := int(float64(h) * frontCoverRatio)
+	if cropW <= 0 || cropW >= w {
+		return nil, fmt.Errorf("cover image %dx%d too narrow to crop", w, h)
+	}
+
+	srcRect := image.Rect(b.Max.X-cropW, b.Min.Y, b.Max.X, b.Max.Y)
+	dst := image.NewRGBA(image.Rect(0, 0, cropW, h))
+	draw.Draw(dst, dst.Bounds(), img, srcRect.Min, draw.Src)
+
+	var buf bytes.Buffer
+	if err := jpeg.Encode(&buf, dst, &jpeg.Options{Quality: 90}); err != nil {
+		return nil, fmt.Errorf("encoding cropped cover: %w", err)
+	}
+	return buf.Bytes(), nil
+}
 
 type Organiser struct {
 	cfgStore *config.Store
@@ -71,16 +116,30 @@ func (o *Organiser) Organise(ctx context.Context, m *scraper.Metadata, videoPath
 	// Sidecars share the video's basename so Jellyfin pairs them (e.g.
 	// "MIDA-678 (2026)-poster.jpg" next to "MIDA-678 (2026).mp4").
 	posterName := base + "-poster.jpg"
-	if m.CoverURL == "" || o.download(ctx, m.CoverURL, filepath.Join(dir, posterName)) != nil {
+	fanartName := base + "-fanart.jpg"
+	art := nfo.Artwork{Poster: posterName}
+
+	raw, err := o.downloadCover(ctx, m.CoverURL)
+	if err != nil {
 		if err := writePlaceholderPoster(filepath.Join(dir, posterName), m.Code); err != nil {
 			return "", fmt.Errorf("writing placeholder poster: %w", err)
 		}
-	}
-	art := nfo.Artwork{Poster: posterName}
-	if m.FanartURL != "" {
-		fanartName := base + "-fanart.jpg"
-		if err := o.download(ctx, m.FanartURL, filepath.Join(dir, fanartName)); err == nil {
-			art.Fanart = fanartName
+	} else {
+		// Every current source's CoverURL is a wraparound package scan (back
+		// blurb + spine + front cover in one image) — write it whole as
+		// fanart, and isolate the front panel as the poster so Jellyfin
+		// doesn't show the combined scan as the item's cover.
+		if err := os.WriteFile(filepath.Join(dir, fanartName), raw, 0o644); err != nil {
+			return "", fmt.Errorf("writing fanart: %w", err)
+		}
+		art.Fanart = fanartName
+
+		poster := raw
+		if cropped, err := cropFrontCover(raw); err == nil {
+			poster = cropped
+		}
+		if err := os.WriteFile(filepath.Join(dir, posterName), poster, 0o644); err != nil {
+			return "", fmt.Errorf("writing poster: %w", err)
 		}
 	}
 
@@ -104,10 +163,23 @@ func (o *Organiser) renderName(rename config.RenameConfig, template string, m *s
 	return r.Replace(template)
 }
 
-func (o *Organiser) download(ctx context.Context, imgURL, dest string) error {
+// downloadCover fetches coverURL, treating an empty URL the same as a
+// download failure so callers have a single fallback path (placeholder
+// poster, no fanart).
+func (o *Organiser) downloadCover(ctx context.Context, coverURL string) ([]byte, error) {
+	if coverURL == "" {
+		return nil, fmt.Errorf("no cover URL")
+	}
+	return o.download(ctx, coverURL)
+}
+
+// download fetches imgURL and returns its raw bytes (the caller decides
+// whether/how to write them out — see Organise, which writes the same
+// fetched cover as both the full fanart and a cropped poster).
+func (o *Organiser) download(ctx context.Context, imgURL string) ([]byte, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, imgURL, nil)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36")
 	// Some image CDNs (e.g. JavBus) hotlink-protect on Referer; a same-origin
@@ -118,19 +190,12 @@ func (o *Organiser) download(ctx context.Context, imgURL, dest string) error {
 
 	resp, err := o.client.Do(req)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("unexpected status %d fetching %s", resp.StatusCode, imgURL)
+		return nil, fmt.Errorf("unexpected status %d fetching %s", resp.StatusCode, imgURL)
 	}
 
-	f, err := os.Create(dest)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-
-	_, err = io.Copy(f, resp.Body)
-	return err
+	return io.ReadAll(resp.Body)
 }
