@@ -108,7 +108,29 @@ func Load(path string) (*Config, error) {
 	if err := yaml.Unmarshal(data, cfg); err != nil {
 		return nil, fmt.Errorf("parsing config: %w", err)
 	}
+	migrateLegacyPaths(cfg)
 	return cfg, nil
+}
+
+// migrateLegacyPaths remaps Default()'s pre-rename Paths values (before the
+// download/sorted/TBC rename) to their current equivalents. /setup/folders
+// has been a read-only view since v1.0.2 (paths are owned by the compose
+// bind-mounts), so a persisted config.yaml can only ever contain exactly
+// the old defaults or the current ones — never a user-customized path.
+// Without this, a config saved before the rename silently points at
+// folders the new compose files no longer mount.
+func migrateLegacyPaths(cfg *Config) {
+	fresh := Default().Paths
+	remap := func(current *string, legacy, replacement string) {
+		if *current == legacy {
+			*current = replacement
+		}
+	}
+	remap(&cfg.Paths.Watch, "/watch", fresh.Watch)
+	remap(&cfg.Paths.Library, "/library", fresh.Library)
+	remap(&cfg.Paths.ReviewFilter, "/library/review/_filter", fresh.ReviewFilter)
+	remap(&cfg.Paths.ReviewUnmatched, "/library/review/_unmatched", fresh.ReviewUnmatched)
+	remap(&cfg.Paths.ReviewDuplicate, "/library/review/_duplicate", fresh.ReviewDuplicate)
 }
 
 func save(path string, cfg *Config) error {

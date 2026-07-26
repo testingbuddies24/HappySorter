@@ -9,6 +9,7 @@ services:
       - /volume1/docker/happy-sorter/config:/config
       - /volume1/GG/sorted:/sorted
       - /volume1/GG/download:/download
+      - /volume1/GG/TBC:/TBC
     environment:
       - TZ=Australia/Sydney
     read_only: true

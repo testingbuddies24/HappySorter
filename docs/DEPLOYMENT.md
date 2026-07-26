@@ -20,8 +20,9 @@ docker run -d \
   --restart unless-stopped \
   -p 8080:8080 \
   -v /volume1/data/happy-sorter/config:/config \
-  -v /volume1/data/jav:/sorted \
+  -v /volume1/data/sorted:/sorted \
   -v /volume1/data/download:/download \
+  -v /volume1/data/TBC:/TBC \
   ghcr.io/testingbuddies24/happy-sorter:latest
 ```
 
@@ -30,10 +31,10 @@ What this does:
 - `/config` — holds `config.yaml` and `happy-sorter.db` (DB).
 - `/sorted` — the output Jellyfin-compatible library (writable).
 - `/download` — the input drop folder. **Must be writable**: HappySorter moves
-  rubbish, unmatched, and duplicate files out of it into `/TBC/_filter/`,
-  `/TBC/_unmatched/`, and `/TBC/_duplicate/` (F2/F6),
-  and moves matched files into the organised library (F5). A read-only
-  mount would break this.
+  matched files out of it into the organised library (F5).
+- `/TBC` — **must be writable**: HappySorter moves rubbish, unmatched, and
+  duplicate files here, into `_filter/`, `_unmatched/`, and `_duplicate/`
+  (F2/F6). A read-only mount would break this.
 
 Open `http://<nas-ip>:8080` and follow the setup wizard.
 
@@ -49,12 +50,13 @@ services:
       - "8080:8080"
     volumes:
       - ./config:/config                       # DB + config.yaml
-      - /volume1/data/jav:/sorted             # organised library output
-      - /volume1/data/download:/download              # drop folder (writable — see § 2)
+      - /volume1/data/sorted:/sorted            # organised library output
+      - /volume1/data/download:/download        # drop folder (writable — see § 2)
+      - /volume1/data/TBC:/TBC                  # review queue (writable — see § 2)
     environment:
       - TZ=Asia/Hong_Kong                      # match your NAS timezone
     # Hardening (§ 10) — on by default; the app only ever writes under the
-    # three volumes above, so the container root filesystem can be read-only.
+    # four volumes above, so the container root filesystem can be read-only.
     read_only: true
     security_opt:
       - no-new-privileges:true
@@ -116,21 +118,22 @@ direct.
 
 ```
 /volume1/data/
-├── watch/                       ← drop new videos here
+├── download/                    ← drop new videos here
 │   ├── (incoming SSIS-001.mp4)
 │   └── (incoming HEY-067.mp4)
-├── jav/                         ← HappySorter output (= Jellyfin library)
+├── sorted/                      ← HappySorter output (= Jellyfin library)
 │   ├── SSIS-001/
 │   │   ├── SSIS-001.mp4
 │   │   ├── SSIS-001-poster.jpg
 │   │   ├── SSIS-001-fanart.jpg
 │   │   ├── SSIS-001.nfo
 │   │   └── actors/
-│   ├── HEY-067/
-│   │   └── ...
-│   └── review/
-│       ├── _filter/             ← files the rubbish filter rejected
-│       └── _unmatched/          ← files where no JAV code was found
+│   └── HEY-067/
+│       └── ...
+├── TBC/                         ← files needing manual attention
+│   ├── _filter/                 ← files the rubbish filter rejected
+│   ├── _unmatched/              ← files where no JAV code was found
+│   └── _duplicate/              ← a release for that code already exists
 └── happy-sorter/
     └── config/
         ├── config.yaml
@@ -139,7 +142,7 @@ direct.
 
 Jellyfin library config:
 - Content type: Movies
-- Folders: `/volume1/data/jav` (NOT including `review/`)
+- Folders: `/volume1/data/sorted` (NOT including `TBC/`)
 - Preferred metadata language: Japanese (or your preference)
 - Enable real-time monitoring if you want fresh additions to appear instantly
 

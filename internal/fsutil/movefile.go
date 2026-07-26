@@ -10,7 +10,7 @@ import (
 )
 
 // MoveFile relocates src to dest. It tries a plain rename first, which is
-// atomic and cheap on the same filesystem; /watch and /library are
+// atomic and cheap on the same filesystem; /download, /sorted, and /TBC are
 // typically separate Docker volume mounts though, so a plain os.Rename
 // commonly fails cross-device. In that case it falls back to copying into
 // a temp file alongside dest, renaming into place, then removing src.

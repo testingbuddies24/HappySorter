@@ -90,6 +90,11 @@ func (s *Server) handleReviewRetry(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if _, statErr := os.Stat(rec.CurrentPath); statErr != nil {
+		redirectFlash(w, r, "/tbc", "File not found at "+rec.CurrentPath+" — if you renamed or moved it, rename it back first, then retry.", true)
+		return
+	}
+
 	if err := s.fileStore.Delete(id); err != nil {
 		s.logger.Error("clearing stale review record", "id", id, "error", err)
 	}
@@ -123,10 +128,23 @@ func (s *Server) handleReviewDelete(w http.ResponseWriter, r *http.Request) {
 	redirectFlash(w, r, "/tbc", "Deleted "+rec.CurrentPath+".", false)
 }
 
+// emptyableStates are the only states /tbc/empty may bulk-delete from —
+// anything else (e.g. "done") gets rejected rather than mass-deleting
+// organised files on an unexpected form value.
+var emptyableStates = map[store.FileState]bool{
+	store.StateReviewFilter:    true,
+	store.StateReviewUnmatched: true,
+	store.StateReviewDuplicate: true,
+}
+
 // handleReviewEmpty bulk-deletes every file (disk + record) in a given
 // review state — the confirmation prompt lives client-side on the form.
 func (s *Server) handleReviewEmpty(w http.ResponseWriter, r *http.Request) {
 	state := store.FileState(r.FormValue("state"))
+	if !emptyableStates[state] {
+		http.Error(w, "invalid state", http.StatusBadRequest)
+		return
+	}
 	files, err := s.fileStore.ListByStates(state)
 	if err != nil {
 		s.logger.Error("listing files to empty", "state", state, "error", err)
