@@ -57,3 +57,28 @@ func (s *LogStore) Tail(limit int, level string) ([]LogRecord, error) {
 	// log viewer displays them — most recent at the top.
 	return out, nil
 }
+
+// Since returns log entries newer than cutoff, newest first, capped at limit.
+func (s *LogStore) Since(cutoff time.Time, limit int) ([]LogRecord, error) {
+	rows, err := s.db.Query(
+		`SELECT id, level, message, fields, ts FROM logs WHERE ts >= ? ORDER BY id DESC LIMIT ?`,
+		cutoff, limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []LogRecord
+	for rows.Next() {
+		var r LogRecord
+		if err := rows.Scan(&r.ID, &r.Level, &r.Message, &r.Fields, &r.Time); err != nil {
+			return nil, err
+		}
+		out = append(out, r)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}

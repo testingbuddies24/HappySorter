@@ -21,21 +21,34 @@ var trailingVariant = regexp.MustCompile(`-[A-Z]{1,4}$`)
 // normalised name (the hyphenated forms are handled by trailingVariant).
 var gluedSuffixes = []string{"FHD", "HD"}
 
+// trailingBracket matches a square-bracketed group at the end of the name —
+// release dates ("[2026-07-03]"), quality tags ("[1080P]"). Stripped in the
+// same loop as variant markers so stacked tags clear. End-anchored on
+// purpose: leading site tags like "[HHD800.COM]DASS-996" must keep failing
+// the anchored code regex below. Parens are deliberately NOT included here:
+// "(1)"/"(2)" is ambiguous with multi-part releases, and trailingVariant's
+// digit-bearing-tail exclusion (see above) exists specifically to leave
+// those for manual review rather than guess.
+var trailingBracket = regexp.MustCompile(`\s*\[[^\]]*\]\s*$`)
+
 // ExtractCode normalises path's filename and attempts to pull a JAV code
 // out of it. Returns the canonical "PREFIX-NUMBER" form and true on match.
 func ExtractCode(path string) (string, bool) {
 	name := strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
 	name = strings.ToUpper(strings.TrimSpace(name))
 
-	// Strip trailing variant/quality markers until the name stops shrinking.
-	// The regex stays fully anchored below, so anything that is not a bare
-	// code after this (e.g. "HHD800.COM-DASS-996") correctly falls through to
-	// review rather than yielding a false code.
+	// Strip trailing variant/quality/bracket markers until the name stops
+	// shrinking. The regex stays fully anchored below, so anything that is
+	// not a bare code after this (e.g. "HHD800.COM-DASS-996") correctly
+	// falls through to review rather than yielding a false code.
 	for {
-		stripped := trailingVariant.ReplaceAllString(name, "")
+		stripped := trailingBracket.ReplaceAllString(name, "")
+		stripped = strings.TrimSpace(stripped)
+		stripped = trailingVariant.ReplaceAllString(stripped, "")
 		for _, suf := range gluedSuffixes {
 			stripped = strings.TrimSuffix(stripped, suf)
 		}
+		stripped = strings.TrimSpace(stripped)
 		if stripped == name {
 			break
 		}
