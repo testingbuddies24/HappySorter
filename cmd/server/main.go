@@ -65,7 +65,7 @@ func run() error {
 		Transport: scraper.NewProxyTransport(cfgStore),
 	}
 	managerStore := scraper.NewManagerStore(scraper.NewManager(logger, registry.BuildAdapters(cfg.Sources, httpClient, logger)...))
-	org := organiser.New(cfgStore, httpClient)
+	org := organiser.New(cfgStore, httpClient, logger)
 
 	pl := pipeline.New(cfgStore, fileStore, metaStore, managerStore, org, logger)
 

@@ -47,6 +47,17 @@ type Metadata struct {
 	CoverURL    string
 	FanartURL   string
 	Source      string
+
+	// Series is the JAV series/franchise this release belongs to, if the
+	// source distinguishes it from a one-off title. Most releases have none.
+	Series string
+	// Label is the distributor/imprint brand (e.g. "S1 NO.1 STYLE"), which
+	// aggregator sites list separately from the production Studio. Rarely
+	// available — only JavBus currently exposes it.
+	Label string
+	// Rating is normalised to a 0-10 scale (Kodi/Jellyfin convention)
+	// regardless of the source site's native scale. Zero means "not rated".
+	Rating float64
 }
 
 // Adapter is a single metadata source (docs/ARCHITECTURE.md § 2.6).
