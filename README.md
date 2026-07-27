@@ -2,11 +2,12 @@
 
 [![CI](https://github.com/testingbuddies24/HappySorter/actions/workflows/ci.yml/badge.svg)](https://github.com/testingbuddies24/HappySorter/actions/workflows/ci.yml)
 [![Release](https://github.com/testingbuddies24/HappySorter/actions/workflows/release.yml/badge.svg)](https://github.com/testingbuddies24/HappySorter/actions/workflows/release.yml)
+[![Latest release](https://img.shields.io/github/v/release/testingbuddies24/HappySorter)](https://github.com/testingbuddies24/HappySorter/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 > Self-hosted, Docker-deployable organizer for personal JAV (Japanese Adult Video) media libraries, with first-class [Jellyfin](https://jellyfin.org/) compatibility.
 
-Drop a video file into a watched folder. HappySorter parses the JAV code from the filename, scrapes metadata from multiple sources (with ordered fallback), and lays out the file into a Jellyfin-recognized folder: `<CODE> (<YEAR>)/<CODE> (<YEAR>).mp4` + `poster.jpg` + `fanart.jpg` + `movie.nfo` + `actors/`.
+Drop a video file into a watched folder. HappySorter parses the JAV code from the filename, scrapes metadata from multiple sources (with ordered fallback and field-level merging), and lays out the file into a Jellyfin-recognized folder: `<CODE>/<CODE>.mp4` + `<CODE>-poster.jpg` + `<CODE>-fanart.jpg` + `<CODE>.nfo` (folder/file naming is a configurable template, e.g. to include the year).
 
 Runs as a single Docker container on a NAS (Synology, QNAP, anything x86_64 / arm64). The setup GUI is a one-time configuration tool — your actual library is browsed in Jellyfin.
 
@@ -17,9 +18,11 @@ The legacy tool at  is a 2015 Windows .NET file-renamer whose backend API has si
 ## Features
 
 - 📁 **Folder watcher** — drop files in `/download`, they appear organised in `/sorted`.
-- 🗑️ **Rubbish filter** — junk files (`.url`, `.txt`, samples, trailers) routed to a review folder.
-- 🔎 **Multi-source scrape with fallback** — configure JavLibrary, JavBus, JavDB, etc.; if one dies, the next takes over.
-- 🎬 **Jellyfin-compatible output** — `movie.nfo` + cover + fanart + per-actress photos, layout Jellyfin reads natively.
+- 🗑️ **Rubbish filter** — junk files (`.url`, `.txt`, samples, trailers) routed to `/TBC/_filter`, one-click bulk delete from the GUI.
+- 🔎 **Multi-source scrape with field-level merging** — S1, IdeaPocket, JavBus, JavDB tried in priority order; the first complete result is filled in with whatever fields (plot, genres, series, rating, label, ...) it's missing from the next source, instead of a single source winning wholesale.
+- 🎬 **Jellyfin-compatible output** — `movie.nfo` (title, plot, genres, rating, series, distributor label, ...) + cropped front-cover poster + full-scan fanart.
+- 📊 **Live dashboard** — last 60 minutes of pipeline activity, streamed in real time.
+- 🔁 **TBC review queue** — retry, delete, or bulk-delete rejected/unmatched/duplicate files from the GUI, with a "Refresh from disk" action that reconciles the queue after manual file edits.
 - 🐳 **One container** — ~30–80 MB final image, multi-arch (`linux/amd64`, `linux/arm64`), idle RAM ≤ 100 MB.
 - 🖥️ **Web GUI for setup** — configure folders, sources, rename template, view logs.
 - 🔄 **Crash-safe** — pipeline state in SQLite; container restart resumes from where it left off.
@@ -34,6 +37,7 @@ docker run -d \
   -v $(pwd)/happy-sorter/config:/config \
   -v /path/to/sorted:/sorted \
   -v /path/to/download:/download \
+  -v /path/to/TBC:/TBC \
   ghcr.io/testingbuddies24/happy-sorter:latest
 ```
 
@@ -57,34 +61,41 @@ See [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) for the full guide (docker-compos
 
 ## Project status
 
-🏗️ **Milestone 5 in progress (hardening & release)** — the pipeline has
-four working sources:
-two studio-direct (S1, IdeaPocket) and two aggregators (JavBus, JavDB),
-tried in priority order with real fallback. Files dropped into `/download`
-are triaged (rubbish filter, JAV code extraction), scraped live with
-metadata caching (so multi-disc releases skip re-scraping) and
-priority-ordered fallback across sources, and organised into a
-Jellyfin-recognised `<CODE> (<YEAR>)/` folder with `movie.nfo`,
-`poster.jpg`, `fanart.jpg`, and `backdrop.jpg`. A file that would collide
-with an already-organised release is left alone and routed to
-`review/_duplicate/` instead of being overwritten or auto-renamed. Files
-queued for scraping while no source was enabled now drain automatically
-the moment a source is turned on — no restart, no manual retry. Everything
-is configurable from the web GUI without editing YAML by hand:
-`/setup/sources` (including a proxy URL field for Cloudflare-gated
-sources), `/setup/rename`, a `/tbc` queue with retry/delete, `/logs`,
-and `/rescan`/`/pause`/`/resume` controls — sources and rename templates
-hot-reload without a restart. Folder paths are owned by the
-docker-compose bind mounts; `/setup/folders` shows them read-only. Missing or failed cover
-downloads now fall back to a generated placeholder poster instead of
-leaving the item without a poster (or, for a failed download, failing the
-whole item). The container runs non-root with a read-only root filesystem
-by default (reasoned safe by code inspection; not yet run on real Docker
-hardware), and CI (build/vet/format/test) plus a tag-triggered multi-arch GHCR release
-workflow are wired up in `.github/workflows/`. What's left before v1.0.0:
-cutting the actual version tag (see `docs/ROADMAP.md` M5) and the third
-aggregator, JavLibrary, which remains deferred behind a genuine Cloudflare
-challenge until a working proxy is available to verify selectors against.
+✅ **Released — currently v1.0.7, in active use.** The pipeline has four
+working sources: two studio-direct (S1, IdeaPocket) and two aggregators
+(JavBus, JavDB), tried in priority order with real fallback. Files dropped
+into `/download` are triaged (rubbish filter, JAV code extraction), scraped
+live with metadata caching (so multi-disc releases skip re-scraping), and
+merged field-by-field across sources — if the first complete result is
+missing plot, genres, series, rating, or distributor label, remaining
+sources fill in the gaps instead of one source winning wholesale. Output
+lands in a Jellyfin-recognised `<CODE>/` folder with `movie.nfo`, a
+cropped front-cover poster (isolated from the wraparound package scan
+every source serves), and the full scan as fanart. A file that would
+collide with an already-organised release is left alone and routed to
+`TBC/_duplicate/` instead of being overwritten or auto-renamed. Files
+queued for scraping while no source was enabled drain automatically the
+moment a source is turned on — no restart, no manual retry.
+
+The `/tbc` queue supports retry/delete per file, a "Refresh from disk"
+action that reconciles the queue after manual renames or edits, and a bulk
+"delete all junk" that operates on the actual folder contents (not just
+tracked database rows). The dashboard's live activity feed backfills the
+last 60 minutes on load instead of starting empty. Everything is
+configurable from the web GUI without editing YAML by hand: `/setup/sources`
+(including a proxy URL field for Cloudflare-gated sources), `/setup/rename`,
+`/logs`, and `/rescan`/`/pause`/`/resume` controls — sources and rename
+templates hot-reload without a restart. Folder paths are owned by the
+docker-compose bind mounts; `/setup/folders` shows them read-only. Missing
+or failed cover downloads fall back to a generated placeholder poster.
+
+The container runs non-root with a read-only root filesystem by default,
+and CI (build/vet/format/test) plus a tag-triggered multi-arch GHCR release
+workflow are wired up in `.github/workflows/`. Known gaps: JavLibrary
+remains deferred behind a genuine Cloudflare challenge until a working
+proxy is available to verify selectors against, and per-actress photos are
+not yet implemented (needs a dedicated actress-detail-page scrape per
+adapter).
 
 For a hands-on sandbox to run the server yourself and drop test files in,
 see [`testbed/README.md`](testbed/README.md).
@@ -108,7 +119,7 @@ HappySorter/
 │   ├── nfo/                        # Kodi movie.nfo writer
 │   ├── organiser/                  # Jellyfin folder layout + image download
 │   ├── pipeline/                   # watcher -> filter -> scrape -> organise
-│   ├── scraper/                    # Adapter interface, manager, s1 adapter
+│   ├── scraper/                    # Adapter interface, merging manager, s1/ideapocket/javbus/javdb adapters
 │   ├── store/                      # files + metadata_cache tables
 │   └── watcher/                    # /download folder watcher
 ├── web/                            # (future) HTMX templates + static
