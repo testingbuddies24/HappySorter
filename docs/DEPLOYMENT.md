@@ -1,6 +1,6 @@
 # HappySorter — Deployment guide
 
-> Status: **Draft v1** (2026-07-13)
+> Status: **Current** — reflects v1.0.7 (2026-07-27)
 > See also: [`SPEC.md`](SPEC.md), [`ARCHITECTURE.md`](ARCHITECTURE.md)
 
 ## 1. Prerequisites
@@ -78,7 +78,7 @@ docker compose logs -f happy-sorter
    - The **aggregators** `javbus` and `javdb` also work from any IP with no proxy — despite the name, `§ 4a` below is not needed for either of them. `javlibrary` is listed in config but has no adapter yet (still blocked on a genuine Cloudflare challenge; see `docs/ROADMAP.md` M4b).
 4. (Optional) Go to **Setup → Rename** → tweak folder/file templates. Save.
 5. Drop a test file (e.g. `SSIS-001.mp4`) into the `/download` folder.
-6. Watch the dashboard — the file should land in `/sorted/SSIS-001 (2018)/` with cover, fanart, nfo. Small local drops appear within seconds; a large file copied over the network is deliberately left alone until it stops growing, then picked up by the next scan — allow up to ~90 s after the copy finishes.
+6. Watch the dashboard — the file should land in `/sorted/SSIS-001/` with cover, fanart, nfo (folder/file naming follows the Rename templates from step 4 — the year can be added there, e.g. `{code} ({year})`). Small local drops appear within seconds; a large file copied over the network is deliberately left alone until it stops growing, then picked up by the next scan — allow up to ~90 s after the copy finishes.
 
 If nothing happens, check **Logs** in the GUI.
 
@@ -126,8 +126,7 @@ direct.
 │   │   ├── SSIS-001.mp4
 │   │   ├── SSIS-001-poster.jpg
 │   │   ├── SSIS-001-fanart.jpg
-│   │   ├── SSIS-001.nfo
-│   │   └── actors/
+│   │   └── SSIS-001.nfo
 │   └── HEY-067/
 │       └── ...
 ├── TBC/                         ← files needing manual attention
@@ -154,6 +153,7 @@ Jellyfin library config:
 - For `/download` to be visible, the host path must be under `/volume1/...` (DSM's main volume) or another defined volume.
 - File watcher (`fsnotify`) works on Btrfs and ext4 inside `/volume1/`.
 - If you drop files via SMB into `/download`, inotify events may be delayed by 1–5 s; this is normal.
+- **Stopping and rebuilding a project in Container Manager does NOT pull a new image.** It only recreates the container from whatever's already cached locally under that tag — true even for `:latest`, and true of plain `docker compose up -d` too, not a DSM quirk. See § 8 for the actual update procedure.
 
 ### QNAP QTS / QuTS hero
 
@@ -193,6 +193,17 @@ Restore procedure:
 docker compose pull happy-sorter
 docker compose up -d
 ```
+
+**Both commands are required, in that order.** `docker compose up -d` (or
+Container Manager's Project "Build"/"Rebuild" action) only recreates the
+container from whatever image is already cached locally — it does not fetch
+a newer one on its own, even under `:latest`. Skipping the explicit pull is
+the single most common reason an update "doesn't take": the container
+restarts, but on the same old image. If you want to avoid SSH entirely,
+run the same two commands from a Synology **Task Scheduler** user-defined
+script (Control Panel → Task Scheduler → Create → Scheduled Task →
+User-defined script) — it can be triggered on demand with the GUI's "Run"
+button, or left on a schedule.
 
 The DB schema migrates automatically. Old library folders are untouched.
 
