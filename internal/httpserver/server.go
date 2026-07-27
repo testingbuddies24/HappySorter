@@ -99,6 +99,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /tbc/retry", s.handleReviewRetry)
 	s.mux.HandleFunc("POST /tbc/delete", s.handleReviewDelete)
 	s.mux.HandleFunc("POST /tbc/empty", s.handleReviewEmpty)
+	s.mux.HandleFunc("POST /tbc/refresh", s.handleReviewRefresh)
 
 	// Backward-compat: keep old /review routes.
 	s.mux.HandleFunc("GET /review", s.handleReviewRedirect)
@@ -110,6 +111,7 @@ func (s *Server) routes() {
 
 	// JSON & plain-text log APIs for the dashboard.
 	s.mux.HandleFunc("GET /api/logs/stream", s.handleLogStream)
+	s.mux.HandleFunc("GET /api/logs/recent", s.handleLogsRecent)
 	s.mux.HandleFunc("GET /api/logs/text", s.handleLogsText)
 
 	s.mux.HandleFunc("POST /rescan", s.handleRescan)
@@ -141,7 +143,7 @@ var dashboardTmpl = template.Must(template.New("dashboard").Parse(`
   {{range .Counts}}<tr><td>{{.Label}}</td><td>{{.Count}}</td></tr>{{end}}
 </table>
 
-<h2>Live activity <span style="font-weight:400;font-size:.8rem;color:var(--muted)">(streaming)</span></h2>
+<h2>Live activity <span style="font-weight:400;font-size:.8rem;color:var(--muted)">(last 60 min, streaming)</span></h2>
 <div class="toolbar">
   <label style="display:inline;font-weight:400;margin:0"><input type="checkbox" id="auto-scroll" checked> Auto-scroll</label>
   <select id="level-filter" style="width:auto;max-width:8rem">
@@ -169,49 +171,71 @@ var dashboardTmpl = template.Must(template.New("dashboard").Parse(`
   const levelFilter = document.getElementById("level-filter");
   const copyBtn = document.getElementById("copy-logs");
   let maxEntries = 200;
+  let maxAgeMs = 60 * 60 * 1000;
 
   let first = true;
+
+  function addRow(r, animate) {
+    if (levelFilter.value && r.level.toUpperCase() !== levelFilter.value) return;
+    if (first) { tbody.textContent = ""; first = false; }
+
+    const tr = document.createElement("tr");
+    const time = formatTime(r.time);
+    const lvl = r.level;
+    const msg = esc(r.message);
+    const fields = esc(formatFields(r.fields));
+    tr.dataset.ts = Date.parse(r.time) || Date.now();
+
+    const tdTime = document.createElement("td");
+    tdTime.textContent = time;
+    tr.appendChild(tdTime);
+
+    const tdLevel = document.createElement("td");
+    const badge = document.createElement("span");
+    badge.className = "badge";
+    badge.setAttribute("data-level", lvl.toLowerCase());
+    badge.textContent = lvl;
+    tdLevel.appendChild(badge);
+    tr.appendChild(tdLevel);
+
+    const tdMsg = document.createElement("td");
+    tdMsg.textContent = msg;
+    tr.appendChild(tdMsg);
+
+    const tdFields = document.createElement("td");
+    tdFields.textContent = fields;
+    tr.appendChild(tdFields);
+
+    if (animate) {
+      tr.style.display = "none";
+      tbody.prepend(tr);
+      requestAnimationFrame(() => tr.style.display = "");
+    } else {
+      tbody.appendChild(tr);
+    }
+
+    evict();
+
+    if (animate && autoScroll.checked) tr.scrollIntoView({block: "start"});
+  }
+
+  function evict() {
+    const cutoff = Date.now() - maxAgeMs;
+    while (tbody.lastChild && Number(tbody.lastChild.dataset.ts) < cutoff) tbody.lastChild.remove();
+    while (tbody.children.length > maxEntries) tbody.lastChild.remove();
+  }
+
+  fetch("/api/logs/recent").then(r => r.json()).then(records => {
+    for (const r of records) addRow(r, false); // already newest-first
+  }).catch(() => {}).finally(() => {
+    setInterval(evict, 60000);
+  });
 
   const es = new EventSource("/api/logs/stream");
   es.onmessage = (ev) => {
     try {
       const r = JSON.parse(ev.data);
-      if (levelFilter.value && r.level.toUpperCase() !== levelFilter.value) return;
-      if (first) { tbody.textContent = ""; first = false; }
-
-      const tr = document.createElement("tr");
-      const time = formatTime(r.time);
-      const lvl = r.level;
-      const msg = esc(r.message);
-      const fields = esc(formatFields(r.fields));
-
-      const tdTime = document.createElement("td");
-      tdTime.textContent = time;
-      tr.appendChild(tdTime);
-
-      const tdLevel = document.createElement("td");
-      const badge = document.createElement("span");
-      badge.className = "badge";
-      badge.setAttribute("data-level", lvl.toLowerCase());
-      badge.textContent = lvl;
-      tdLevel.appendChild(badge);
-      tr.appendChild(tdLevel);
-
-      const tdMsg = document.createElement("td");
-      tdMsg.textContent = msg;
-      tr.appendChild(tdMsg);
-
-      const tdFields = document.createElement("td");
-      tdFields.textContent = fields;
-      tr.appendChild(tdFields);
-
-      tr.style.display = "none";
-      tbody.prepend(tr);
-      requestAnimationFrame(() => tr.style.display = "");
-
-      while (tbody.children.length > maxEntries) tbody.lastChild.remove();
-
-      if (autoScroll.checked) tr.scrollIntoView({block: "start"});
+      addRow(r, true);
     } catch {}
   };
   es.onerror = () => {};

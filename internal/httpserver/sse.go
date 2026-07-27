@@ -5,6 +5,8 @@ import (
 	"log/slog"
 	"net/http"
 	"time"
+
+	"github.com/testingbuddies24/HappySorter/internal/store"
 )
 
 // handleLogStream upgrades to an SSE (Server-Sent Events) connection and
@@ -50,6 +52,43 @@ func (s *Server) handleLogStream(w http.ResponseWriter, r *http.Request) {
 		case <-r.Context().Done():
 			return
 		}
+	}
+}
+
+// handleLogsRecent returns the last 60 minutes of log records as JSON, newest
+// first, so the dashboard's live activity feed can backfill on page load
+// instead of starting empty and waiting for the next SSE event.
+func (s *Server) handleLogsRecent(w http.ResponseWriter, r *http.Request) {
+	records, err := s.logStore.Since(time.Now().Add(-60*time.Minute), 200)
+	if err != nil {
+		s.logger.Error("loading recent logs", "error", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
+	out := make([]logRecordJSON, 0, len(records))
+	for _, rec := range records {
+		out = append(out, logRecordFromStore(rec))
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(out); err != nil {
+		s.logger.Error("encoding recent logs", "error", err)
+	}
+}
+
+// logRecordFromStore converts a persisted store.LogRecord into the same JSON
+// shape the SSE stream emits, so client-side rendering code is shared.
+func logRecordFromStore(r store.LogRecord) logRecordJSON {
+	var fields map[string]any
+	if r.Fields != "" {
+		_ = json.Unmarshal([]byte(r.Fields), &fields)
+	}
+	return logRecordJSON{
+		Time:    r.Time.Format(time.RFC3339),
+		Level:   r.Level,
+		Message: r.Message,
+		Fields:  fields,
 	}
 }
 
