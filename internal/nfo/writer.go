@@ -30,15 +30,20 @@ type movie struct {
 	Plot          string   `xml:"plot"`
 	Runtime       int      `xml:"runtime,omitempty"`
 	Director      string   `xml:"director,omitempty"`
+	Rating        float64  `xml:"rating,omitempty"`
 	Poster        string   `xml:"poster,omitempty"`
 	Fanart        string   `xml:"fanart,omitempty"`
 	Actors        []actor  `xml:"actor"`
 	Genres        []string `xml:"genre,omitempty"`
 	Tags          []string `xml:"tag,omitempty"`
 	Maker         string   `xml:"maker,omitempty"`
-	Num           string   `xml:"num"`
-	Release       string   `xml:"release,omitempty"`
-	UniqueID      uniqueID `xml:"uniqueid"`
+	// Label is not a standard Kodi/Jellyfin tag, but is read by the common
+	// Jellyfin JAV metadata plugins as the distributor/imprint brand,
+	// distinct from Maker (the production studio).
+	Label    string   `xml:"label,omitempty"`
+	Num      string   `xml:"num"`
+	Release  string   `xml:"release,omitempty"`
+	UniqueID uniqueID `xml:"uniqueid"`
 }
 
 // Artwork names the image sidecar files (relative to the .nfo) that the
@@ -56,6 +61,16 @@ func Write(path string, m *scraper.Metadata, art Artwork) error {
 	// visible in Jellyfin's library grid, matching the common JAV convention.
 	title := "[" + m.Code + "]" + m.Title
 
+	tags := append([]string{}, m.Genres...) // Jellyfin JAV setups mirror genres as tags
+	if m.Series != "" {
+		// Kodi/Jellyfin's native <set> turns this into a Collection named
+		// verbatim after the series text, which for JAV sources is often a
+		// long descriptive sentence rather than a short franchise name —
+		// folded into tags instead so it's searchable without spawning a
+		// Collection per series string.
+		tags = append(tags, m.Series)
+	}
+
 	doc := movie{
 		Title:         title,
 		OriginalTitle: title,
@@ -65,11 +80,13 @@ func Write(path string, m *scraper.Metadata, art Artwork) error {
 		Plot:          m.Plot,
 		Runtime:       m.Runtime,
 		Director:      m.Director,
+		Rating:        m.Rating,
 		Poster:        art.Poster,
 		Fanart:        art.Fanart,
 		Genres:        m.Genres,
-		Tags:          m.Genres, // Jellyfin JAV setups mirror genres as tags
+		Tags:          tags,
 		Maker:         m.Studio,
+		Label:         m.Label,
 		Num:           m.Code,
 		Release:       m.ReleaseDate,
 		UniqueID:      uniqueID{Type: "jav", Default: true, Value: m.Code},

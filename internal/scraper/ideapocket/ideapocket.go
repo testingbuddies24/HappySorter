@@ -102,6 +102,8 @@ func (a *Adapter) Lookup(ctx context.Context, code string) (*scraper.Metadata, e
 				meta.Year = year
 				meta.ReleaseDate = fmt.Sprintf("%04d-%02d-%02d", year, month, day)
 			}
+		case "シリーズ":
+			meta.Series = strings.TrimSpace(td.Find("a").First().Text())
 		case "ジャンル":
 			td.Find(".item a").Each(func(_ int, link *goquery.Selection) {
 				meta.Genres = append(meta.Genres, strings.TrimSpace(link.Text()))

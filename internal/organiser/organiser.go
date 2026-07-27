@@ -17,6 +17,7 @@ import (
 	"image/jpeg"
 	_ "image/png"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"os"
@@ -73,13 +74,14 @@ func cropFrontCover(raw []byte) ([]byte, error) {
 type Organiser struct {
 	cfgStore *config.Store
 	client   *http.Client
+	logger   *slog.Logger
 }
 
 // New builds an Organiser that reads the library path and rename templates
 // fresh from cfgStore on every call, so GUI edits to either take effect
 // without a restart.
-func New(cfgStore *config.Store, client *http.Client) *Organiser {
-	return &Organiser{cfgStore: cfgStore, client: client}
+func New(cfgStore *config.Store, client *http.Client, logger *slog.Logger) *Organiser {
+	return &Organiser{cfgStore: cfgStore, client: client, logger: logger}
 }
 
 // DuplicateError is returned by Organise when a file already sits at the
@@ -119,7 +121,7 @@ func (o *Organiser) Organise(ctx context.Context, m *scraper.Metadata, videoPath
 	fanartName := base + "-fanart.jpg"
 	art := nfo.Artwork{Poster: posterName}
 
-	raw, err := o.downloadCover(ctx, m.CoverURL)
+	raw, err := o.downloadCover(ctx, cfg, m.Code, m.CoverURL)
 	if err != nil {
 		if err := writePlaceholderPoster(filepath.Join(dir, posterName), m.Code); err != nil {
 			return "", fmt.Errorf("writing placeholder poster: %w", err)
@@ -163,14 +165,47 @@ func (o *Organiser) renderName(rename config.RenameConfig, template string, m *s
 	return r.Replace(template)
 }
 
-// downloadCover fetches coverURL, treating an empty URL the same as a
-// download failure so callers have a single fallback path (placeholder
+// imageCacheDir is where downloaded cover images are cached by code, kept
+// alongside cookies_dir under the /config volume (not inside /library,
+// which Jellyfin scans). This is separate from metadata_cache, whose
+// cover_path/fanart_path columns intentionally still hold the source URL —
+// this cache is what makes a metadata cache hit (multi-disc, retry) skip
+// the redundant network fetch + crop, not the DB row.
+func (o *Organiser) imageCacheDir(cfg *config.Config) string {
+	return filepath.Join(filepath.Dir(cfg.Scraping.CookiesDir), "image-cache")
+}
+
+// downloadCover returns code's cover image bytes, preferring a local cache
+// hit over the network. Treats an empty URL (and no cache entry) the same
+// as a download failure so callers have a single fallback path (placeholder
 // poster, no fanart).
-func (o *Organiser) downloadCover(ctx context.Context, coverURL string) ([]byte, error) {
+func (o *Organiser) downloadCover(ctx context.Context, cfg *config.Config, code, coverURL string) ([]byte, error) {
+	cachePath := filepath.Join(o.imageCacheDir(cfg), code+".jpg")
+	if code != "" {
+		// len(data) > 0 guards against a truncated cache entry (crash or full
+		// disk mid-write): an empty read must fall through to a fresh
+		// download rather than get treated as a valid cached cover forever.
+		if data, err := os.ReadFile(cachePath); err == nil && len(data) > 0 {
+			return data, nil
+		}
+	}
+
 	if coverURL == "" {
 		return nil, fmt.Errorf("no cover URL")
 	}
-	return o.download(ctx, coverURL)
+	raw, err := o.download(ctx, coverURL)
+	if err != nil {
+		return nil, err
+	}
+
+	if code != "" {
+		if err := os.MkdirAll(filepath.Dir(cachePath), 0o755); err != nil {
+			o.logger.Error("creating image cache dir", "dir", filepath.Dir(cachePath), "error", err)
+		} else if err := os.WriteFile(cachePath, raw, 0o644); err != nil {
+			o.logger.Error("caching cover image", "code", code, "error", err)
+		}
+	}
+	return raw, nil
 }
 
 // download fetches imgURL and returns its raw bytes (the caller decides

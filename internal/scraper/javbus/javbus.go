@@ -101,6 +101,8 @@ func (a *Adapter) Lookup(ctx context.Context, code string) (*scraper.Metadata, e
 			meta.Director = strings.TrimSpace(p.Find("a").First().Text())
 		case strings.HasPrefix(label, "製作商"):
 			meta.Studio = strings.TrimSpace(p.Find("a").First().Text())
+		case strings.HasPrefix(label, "發行商"):
+			meta.Label = strings.TrimSpace(p.Find("a").First().Text())
 		}
 	})
 

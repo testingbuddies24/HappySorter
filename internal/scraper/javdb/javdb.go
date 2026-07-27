@@ -25,7 +25,13 @@ import (
 
 const baseURL = "https://javdb.com"
 
-var runtimeRegex = regexp.MustCompile(`(\d+)\s*分`)
+var (
+	runtimeRegex = regexp.MustCompile(`(\d+)\s*分`)
+	// ratingRegex pulls the leading score out of JavDB's rating text, e.g.
+	// "4.43分, 由2205人評價" -> "4.43". The site's scale tops out at 5, so the
+	// value is doubled to match Kodi/Jellyfin's 0-10 rating convention.
+	ratingRegex = regexp.MustCompile(`^([\d.]+)`)
+)
 
 type Adapter struct {
 	client *http.Client
@@ -112,6 +118,14 @@ func (a *Adapter) detail(ctx context.Context, path string) (*scraper.Metadata, e
 			meta.Director = strings.TrimSpace(value.Text())
 		case "片商":
 			meta.Studio = strings.TrimSpace(value.Text())
+		case "系列":
+			meta.Series = strings.TrimSpace(value.Text())
+		case "評分":
+			if m := ratingRegex.FindStringSubmatch(strings.TrimSpace(value.Text())); m != nil {
+				if score, err := strconv.ParseFloat(m[1], 64); err == nil {
+					meta.Rating = score * 2
+				}
+			}
 		case "類別":
 			value.Find("a").Each(func(_ int, link *goquery.Selection) {
 				meta.Genres = append(meta.Genres, strings.TrimSpace(link.Text()))
