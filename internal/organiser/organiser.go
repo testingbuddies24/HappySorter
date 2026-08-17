@@ -98,55 +98,81 @@ func (e *DuplicateError) Error() string {
 
 // Organise moves videoPath into the release folder for m and writes its
 // poster/fanart/NFO alongside it. Returns the video's final path.
-func (o *Organiser) Organise(ctx context.Context, m *scraper.Metadata, videoPath string) (string, error) {
+//
+// part is a multi-part/disc marker ("1", "CD1", ...) extracted alongside
+// the code, or "" for a single-file release. When part is set, the video's
+// destination filename carries it (e.g. "FTKD-040 (2026)-1.mp4") so
+// multiple parts of the same release can share one folder without a name
+// collision. Sidecars (poster/fanart/NFO) are named after the code+year
+// only, not the part, and are written once by whichever part or part-less
+// file creates the folder — Jellyfin pairs folder-level artwork with every
+// video in the folder regardless of its own basename.
+func (o *Organiser) Organise(ctx context.Context, m *scraper.Metadata, videoPath, part string) (string, error) {
 	cfg := o.cfgStore.Get()
 	base := o.renderName(cfg.Rename, cfg.Rename.FileTemplate, m)
 	dir := filepath.Join(cfg.Paths.Library, o.renderName(cfg.Rename, cfg.Rename.FolderTemplate, m))
-	dest := filepath.Join(dir, base+strings.ToLower(filepath.Ext(videoPath)))
 
-	// Treat an existing release folder as a duplicate: the code is already in
-	// the library, so route the newcomer aside rather than merging a second
-	// video (and overwriting sidecars) into the same folder.
-	if _, err := os.Stat(dir); err == nil {
-		return "", &DuplicateError{ExistingPath: dir}
+	fileBase := base
+	if part != "" {
+		fileBase = base + "-" + part
+	}
+	dest := filepath.Join(dir, fileBase+strings.ToLower(filepath.Ext(videoPath)))
+
+	_, statErr := os.Stat(dir)
+	dirExists := statErr == nil
+
+	if part == "" {
+		// Treat an existing release folder as a duplicate: the code is
+		// already in the library, so route the newcomer aside rather than
+		// merging a second video (and overwriting sidecars) into the same
+		// folder.
+		if dirExists {
+			return "", &DuplicateError{ExistingPath: dir}
+		}
+	} else if _, err := os.Stat(dest); err == nil {
+		// A multi-part file joins an existing release folder; it's only a
+		// duplicate if this exact part has already landed.
+		return "", &DuplicateError{ExistingPath: dest}
 	}
 
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", fmt.Errorf("creating library folder: %w", err)
 	}
 
-	// Sidecars share the video's basename so Jellyfin pairs them (e.g.
-	// "MIDA-678 (2026)-poster.jpg" next to "MIDA-678 (2026).mp4").
-	posterName := base + "-poster.jpg"
-	fanartName := base + "-fanart.jpg"
-	art := nfo.Artwork{Poster: posterName}
+	if !dirExists {
+		// Sidecars share the release's basename so Jellyfin pairs them (e.g.
+		// "MIDA-678 (2026)-poster.jpg" next to every video in the folder).
+		posterName := base + "-poster.jpg"
+		fanartName := base + "-fanart.jpg"
+		art := nfo.Artwork{Poster: posterName}
 
-	raw, err := o.downloadCover(ctx, cfg, m.Code, m.CoverURL)
-	if err != nil {
-		if err := writePlaceholderPoster(filepath.Join(dir, posterName), m.Code); err != nil {
-			return "", fmt.Errorf("writing placeholder poster: %w", err)
-		}
-	} else {
-		// Every current source's CoverURL is a wraparound package scan (back
-		// blurb + spine + front cover in one image) — write it whole as
-		// fanart, and isolate the front panel as the poster so Jellyfin
-		// doesn't show the combined scan as the item's cover.
-		if err := os.WriteFile(filepath.Join(dir, fanartName), raw, 0o644); err != nil {
-			return "", fmt.Errorf("writing fanart: %w", err)
-		}
-		art.Fanart = fanartName
+		raw, err := o.downloadCover(ctx, cfg, m.Code, m.CoverURL)
+		if err != nil {
+			if err := writePlaceholderPoster(filepath.Join(dir, posterName), m.Code); err != nil {
+				return "", fmt.Errorf("writing placeholder poster: %w", err)
+			}
+		} else {
+			// Every current source's CoverURL is a wraparound package scan
+			// (back blurb + spine + front cover in one image) — write it
+			// whole as fanart, and isolate the front panel as the poster so
+			// Jellyfin doesn't show the combined scan as the item's cover.
+			if err := os.WriteFile(filepath.Join(dir, fanartName), raw, 0o644); err != nil {
+				return "", fmt.Errorf("writing fanart: %w", err)
+			}
+			art.Fanart = fanartName
 
-		poster := raw
-		if cropped, err := cropFrontCover(raw); err == nil {
-			poster = cropped
+			poster := raw
+			if cropped, err := cropFrontCover(raw); err == nil {
+				poster = cropped
+			}
+			if err := os.WriteFile(filepath.Join(dir, posterName), poster, 0o644); err != nil {
+				return "", fmt.Errorf("writing poster: %w", err)
+			}
 		}
-		if err := os.WriteFile(filepath.Join(dir, posterName), poster, 0o644); err != nil {
-			return "", fmt.Errorf("writing poster: %w", err)
-		}
-	}
 
-	if err := nfo.Write(filepath.Join(dir, base+".nfo"), m, art); err != nil {
-		return "", fmt.Errorf("writing nfo: %w", err)
+		if err := nfo.Write(filepath.Join(dir, base+".nfo"), m, art); err != nil {
+			return "", fmt.Errorf("writing nfo: %w", err)
+		}
 	}
 
 	if err := fsutil.MoveFile(videoPath, dest); err != nil {

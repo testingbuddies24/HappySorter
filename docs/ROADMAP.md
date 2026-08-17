@@ -412,6 +412,130 @@ fallback mechanics work end-to-end on a real second source.
 success criteria in `SPEC.md § 7` all pass. Blocked on cutting the release
 tag (see above) — everything else in this milestone is done and pushed.
 
+### Addendum — production hardening: recognizer, FC2, SQLite, watcher
+
+Prompted by a real NAS deployment log review (Aug 14–17, 3.5 days): 32 files
+failed code extraction and needed manual renaming (the reported pain point),
+alongside 3,036 `SQLITE_BUSY` errors, 2,567 watcher-channel-full drops, and
+1,440 stale-path warnings.
+
+- **`internal/pipeline/code.go` rewritten.** The old extractor required the
+  *whole* normalised filename to match `^[A-Z0-9]{2,5}-?\d{2,5}$` after a
+  bounded suffix-stripping loop — any unrecognised trailing noise (a site
+  domain, `_CH`/`_4K`, a digit-bearing multi-part tail) failed the match
+  outright. The new `ExtractCode` tokenizes on any non-alphanumeric run,
+  blanks out dotted-domain tokens (`NYAP2P.COM`, `HHD800.COM`) as a whole
+  unit first (done as a substring replace *before* tokenizing — tokenizing
+  itself splits on `.`, so a post-split per-token domain check would never
+  see the dot), cuts a `site@` watermark prefix, and scans tokens for the
+  first prefix+number pair or glued match. This tolerates surrounding noise
+  instead of requiring an exact whole-name match. Also added: an `FC2(-PPV)?-#######`
+  branch normalising to `FC2-PPV-#######`; multi-part support (`ExtractCode`
+  now returns `(code, part, ok)` — a third `-1`/`-2`/`-CD1` token, digit-
+  terminated so it can't be confused with a quality marker like `4K` or a
+  Chinese-sub marker like `CH`); and a one-level parent-folder fallback when
+  the filename itself yields nothing (rescues watermark-tool output sitting
+  in a folder named after the real code).
+
+  **Conscious behaviour reversals** (previously-asserted "must not match"
+  test cases that now correctly extract a code): `HHD800.COM-DASS-996-AI`
+  and `[HHD800.COM] DASS-996` now yield `DASS-996` — that IS the real
+  release, and rejecting it was the reported pain. `DASS-996-CD1` now
+  yields `DASS-996` + part `CD1` (multi-part is a shipped goal, not a
+  guard). `CAWD-991 (1)` now yields `CAWD-991` + part `1` — a **known
+  trade-off**: a browser-style re-download suffixed `(1)` now organises as
+  a second "part" beside the original instead of routing to
+  `TBC/_duplicate`. Judged acceptable (fewer files stuck in review beats
+  the rare case of a true re-download landing as `-1`), and an
+  identically-named re-download still hits `DuplicateError` normally.
+
+- **`internal/organiser/organiser.go`** gained a `part` parameter. Multi-
+  part files share one release folder (`FTKD-040 (2026)/` holding both
+  `FTKD-040 (2026)-1.mp4` and `-2.mp4`), with sidecars written once by
+  whichever part creates the folder. Duplicate detection now branches on
+  `part`: part-less files keep the original folder-exists check; part-
+  carrying files check their own destination filename instead, so a true
+  re-drop of the same part still correctly lands in `TBC/_duplicate`
+  (verified in the testbed: `dal-011/uncoded-video.mp4` organised via the
+  parent-folder fallback, then the real `masex.tv@dal-011.mp4` for the same
+  release correctly hit `DuplicateError`).
+
+- **FC2 scraping is plumbing-only — every source is externally dead as of
+  2026-08-17.** Live-probed before writing any code (this project's
+  standing methodology, per M4a/M4b): `fc2.javbus.com` has **no DNS record
+  at all**, confirmed against both Google's and Cloudflare's public
+  resolvers directly against `javbus.com`'s own authoritative nameservers —
+  not a geo-block, the subdomain appears down or retired. `javdb.com`'s FC2
+  search results resolve to a distinct `FC2-#######` label (no `PPV`) that
+  cleanly misses the exact-match adapter, and FC2 detail pages 302 to a
+  login wall regardless (regular codes are unaffected). `fc2ppvdb.com`
+  returns Cloudflare 526 (invalid origin cert). `fc2club.net` serves a JS
+  anti-bot challenge shell. `internal/scraper/javbus/javbus.go` gained an
+  FC2 branch (`fc2.javbus.com/<code>`) ready for when the subdomain
+  recovers, but its selectors are **unverified** and must be re-probed
+  against a live response before trusting output. Net effect: FC2 files now
+  extract and normalise their code correctly (confirmed in the testbed —
+  `FC2-PPV-4947342` routes to `TBC/_unmatched` with `code` populated and
+  reason `scrape failed: all sources failed for code FC2-PPV-4947342`,
+  accurate triage instead of the old "no JAV code found in filename").
+  Candidate follow-up once a source recovers: a dedicated `fc2ppvdb`
+  adapter, or re-probing `fc2club.net/html/FC2-<id>.html` (the endpoint
+  shape used by other JAV-tooling FC2 scrapers).
+
+- **`internal/database/database.go`**: `Open` now sets `busy_timeout` and
+  `journal_mode=WAL` via DSN `_pragma` params (applied on every pooled
+  connection) instead of a one-shot `db.Exec` that only ever touched the
+  first connection, and caps the pool at `SetMaxOpenConns(1)` — modernc's
+  driver has no single-writer serialisation of its own, and concurrent
+  writers (pipeline, HTTP review handlers, and critically the `slog`
+  DB-log handler, which meant every `SQLITE_BUSY` error log was itself
+  another contending write) were producing the 3,036 production errors.
+  A lost `Record` write left no `Seen()` row, so the next poll re-routed
+  the same file and `fsutil.UniquePath` minted the `_2`/`_4` duplicate
+  copies observed piling up in `TBC/_filter`. Verified in the testbed: 3
+  rapid re-drops of the same filename plus a mid-run restart produced zero
+  `SQLITE_BUSY` entries and zero `_2`/`_3` files.
+
+- **`internal/watcher/watcher.go`**: event buffer 256 → 1024, and fsnotify
+  Create/Write events for one path now debounce (2s trailing-edge,
+  collapsing an SMB copy's event flood into one emit) before entering the
+  pipeline. Implemented as a plain map of due-times swept by a ticker,
+  entirely inside `Run()`'s own select loop — deliberately *not* a
+  per-path `time.AfterFunc` goroutine, which would race the channel close
+  on shutdown (a timer firing after `ctx.Done()` closes `w.events` panics
+  on send). `pipeline.go`'s "stat failed, skipping" WARN (1,440× in the
+  log — routine when a duplicate event targets an already-moved path)
+  downgraded to Info.
+
+- `internal/pipeline/filter.go`: junk-pattern matching now also checks a
+  whitespace-collapsed copy of the filename, and `"苍老师"` was added to
+  `junkPatterns` — catches a specific ad/filler clip observed reused
+  verbatim (often letter-spaced) across several unrelated torrents in the
+  log, which the un-collapsed substring check missed.
+
+**Verify:** `go build ./...`, `go vet ./...`, `gofmt -l .`, `go test ./...`
+all clean (34 tests, 17 packages, including new
+`internal/database/database_test.go`, a rewritten
+`internal/pipeline/code_test.go` with all 32 real log filenames as a
+regression table, `internal/pipeline/filter_test.go`, and a debounce test in
+`internal/watcher/watcher_test.go`). Ran the built binary against
+`testbed/` with `javbus`+`javdb` enabled, recreating the real failing
+filenames from the log (parent folders included, since several only
+resolve via the new fallback): all organised correctly into
+`sorted/<CODE> (<year>)/` — including the `FTKD-040` multi-part case (both
+`-1`/`-2` files, one shared sidecar set) and the `DAL-011` fallback-then-
+duplicate case above. The FC2 file extracted its code and landed in
+`_unmatched` with the expected "scrape failed" reason (sources externally
+dead, not a code defect). The genuinely-uncoded file and the spaced ad clip
+routed to `_unmatched`/`_filter` respectively, unchanged. Stress/restart
+test (3× rapid re-drop + mid-run restart) produced no `SQLITE_BUSY` and no
+duplicate-suffixed files. A directory created *after* the watcher's initial
+scan wasn't picked up by fsnotify until the next 60s poll — pre-existing,
+documented behaviour (the poll is the safety net), not a regression.
+
+Out of scope for this pass (explicitly deselected): a manual code-assign UI
+action on the review page, and the `javlibrary` adapter.
+
 ## Dependency order
 
 ```

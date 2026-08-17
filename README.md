@@ -97,6 +97,22 @@ proxy is available to verify selectors against, and per-actress photos are
 not yet implemented (needs a dedicated actress-detail-page scrape per
 adapter).
 
+A production log review surfaced the code extractor's biggest real-world
+weakness: any unrecognised trailing noise in a filename (a release-site
+domain, `_CH`/`_4K`/`-uncensored` markers, a multi-part `-1`/`-2` suffix, a
+`site@` watermark prefix) failed the match outright and forced a manual
+rename. The extractor was rewritten to scan for a code token instead of
+requiring an exact whole-filename match, added multi-part release support
+(`CODE (year)-1.mp4` / `-2.mp4` sharing one folder), FC2-PPV code
+recognition, and a one-level parent-folder fallback for files whose own
+name carries no code but whose torrent folder does. Also fixed in this
+pass: a SQLite write-contention bug (`SQLITE_BUSY` under concurrent
+writers) that was silently losing "file processed" records and causing
+duplicate copies to pile up in `TBC/_filter`, and a watcher event-buffer/
+debounce hardening for large torrent-completion bursts. See
+`docs/ROADMAP.md`'s Milestone 5 addendum for the full writeup, including a
+couple of consciously-accepted behaviour trade-offs.
+
 For a hands-on sandbox to run the server yourself and drop test files in,
 see [`testbed/README.md`](testbed/README.md).
 

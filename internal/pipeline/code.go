@@ -6,58 +6,115 @@ import (
 	"strings"
 )
 
-// codeRegex matches a normalised filename that is exactly a JAV code
-// (SPEC.md § F3): 2-5 letters/digits, optional hyphen, 2-5 digits.
-var codeRegex = regexp.MustCompile(`^([A-Z0-9]{2,5})-?(\d{2,5})$`)
+// domainSubstr matches a dotted hostname-shaped run (e.g. "NYAP2P.COM",
+// "HHD800.COM", "MASEX.TV") anywhere in the name, so it can be blanked out
+// before tokenizing. Applied as a substring replace on the whole name
+// (not a per-token match) because tokenizing itself splits on ".", which
+// would otherwise break "HHD800.COM" into "HHD800"/"COM" before this ever
+// gets a chance to recognise it as one unit. Deliberately excludes "-" from
+// the character class: "FJIN-148-UNCENSORED-NYAP2P.COM" must only lose the
+// "NYAP2P.COM" run, not the code's own hyphen-joined prefix along with it.
+var domainSubstr = regexp.MustCompile(`[A-Z0-9]+(?:\.[A-Z0-9]+)+`)
 
-// trailingVariant matches a hyphen-separated, purely-alphabetic variant marker
-// at the end of the name (e.g. "-AI", "-UC", "-CH", "-C"). Stripped in a loop
-// so stacked markers clear ("-UC-AI"). Alpha-only on purpose: digit-bearing
-// tails like "-CD1" or "-2" denote multi-part files and must survive, and the
-// code's own trailing number is digits so it is never eaten (SPEC.md § F3).
-var trailingVariant = regexp.MustCompile(`-[A-Z]{1,4}$`)
+// separator splits a normalised name into tokens on anything that isn't a
+// letter or digit — hyphens, underscores, spaces, brackets, dots, CJK text.
+var separator = regexp.MustCompile(`[^A-Z0-9]+`)
 
-// gluedSuffixes are hyphen-less quality markers stripped from the end of the
-// normalised name (the hyphenated forms are handled by trailingVariant).
-var gluedSuffixes = []string{"FHD", "HD"}
+// prefixToken is a bare label token: 2-5 letters/digits containing at least
+// one letter (SPEC.md § F3). The letter requirement rejects date fragments
+// like "2026" or "07" from ever pairing with a following number as a code.
+var prefixToken = regexp.MustCompile(`^[A-Z0-9]{2,5}$`)
 
-// trailingBracket matches a square-bracketed group at the end of the name —
-// release dates ("[2026-07-03]"), quality tags ("[1080P]"). Stripped in the
-// same loop as variant markers so stacked tags clear. End-anchored on
-// purpose: leading site tags like "[HHD800.COM]DASS-996" must keep failing
-// the anchored code regex below. Parens are deliberately NOT included here:
-// "(1)"/"(2)" is ambiguous with multi-part releases, and trailingVariant's
-// digit-bearing-tail exclusion (see above) exists specifically to leave
-// those for manual review rather than guess.
-var trailingBracket = regexp.MustCompile(`\s*\[[^\]]*\]\s*$`)
+// numTail matches the code's number token, with an optional glued
+// alpha-only quality/variant marker ("049", "049CH", "222HD"). The marker is
+// discarded — the code is normalised without it.
+var numTail = regexp.MustCompile(`^(\d{2,5})(?:[A-Z]{1,4})?$`)
 
-// ExtractCode normalises path's filename and attempts to pull a JAV code
-// out of it. Returns the canonical "PREFIX-NUMBER" form and true on match.
-func ExtractCode(path string) (string, bool) {
+// gluedCode matches a whole token that is a label and number fused with no
+// separator ("IPZZ729", "FNS222HD") — letters-then-digits only, so the split
+// point is never ambiguous.
+var gluedCode = regexp.MustCompile(`^([A-Z]{2,5})(\d{2,5})(?:[A-Z]{1,4})?$`)
+
+// partToken matches a multi-part/disc marker token following a matched code
+// ("1", "2", "CD1", "DVD2"). Digit-terminated on purpose: single-letter or
+// "4K"-style tokens are quality/variant markers, not parts.
+var partToken = regexp.MustCompile(`^(?:CD|DVD|PART)?\d{1,2}$`)
+
+// fc2Num matches an FC2 PPV numeric id (6-8 digits).
+var fc2Num = regexp.MustCompile(`^\d{6,8}$`)
+
+// ExtractCode normalises path's filename and attempts to pull a JAV code out
+// of it, tokenizing on any non-alphanumeric run and scanning for the first
+// token (or token pair) that looks like a code. This tolerates surrounding
+// noise — release-site prefixes/suffixes, quality tags, uncensored/CH
+// markers, watermark domains — that a fully-anchored match would reject
+// outright. If the filename itself yields nothing, falls back to the same
+// scan against the immediate parent folder name, since torrents commonly
+// carry the clean code there even when the video file itself doesn't
+// (e.g. "rlmp-005/masex.tv@rlmp-005.mp4").
+//
+// Returns the canonical "PREFIX-NUMBER" code, an optional part marker
+// ("1", "CD1", ...) for multi-part releases, and true on match.
+func ExtractCode(path string) (code, part string, ok bool) {
 	name := strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
+	if code, part, ok := extractFromName(name); ok {
+		return code, part, ok
+	}
+
+	parentBase := filepath.Base(filepath.Dir(path))
+	parentName := strings.TrimSuffix(parentBase, filepath.Ext(parentBase))
+	return extractFromName(parentName)
+}
+
+func extractFromName(name string) (code, part string, ok bool) {
 	name = strings.ToUpper(strings.TrimSpace(name))
+	if i := strings.LastIndex(name, "@"); i >= 0 {
+		name = name[i+1:]
+	}
+	name = domainSubstr.ReplaceAllString(name, " ")
 
-	// Strip trailing variant/quality/bracket markers until the name stops
-	// shrinking. The regex stays fully anchored below, so anything that is
-	// not a bare code after this (e.g. "HHD800.COM-DASS-996") correctly
-	// falls through to review rather than yielding a false code.
-	for {
-		stripped := trailingBracket.ReplaceAllString(name, "")
-		stripped = strings.TrimSpace(stripped)
-		stripped = trailingVariant.ReplaceAllString(stripped, "")
-		for _, suf := range gluedSuffixes {
-			stripped = strings.TrimSuffix(stripped, suf)
+	var tokens []string
+	for _, t := range separator.Split(name, -1) {
+		if t != "" {
+			tokens = append(tokens, t)
 		}
-		stripped = strings.TrimSpace(stripped)
-		if stripped == name {
-			break
-		}
-		name = stripped
 	}
 
-	m := codeRegex.FindStringSubmatch(name)
-	if m == nil {
-		return "", false
+	for i, t := range tokens {
+		if t == "FC2" {
+			j := i + 1
+			if j < len(tokens) && tokens[j] == "PPV" {
+				j++
+			}
+			if j < len(tokens) && fc2Num.MatchString(tokens[j]) {
+				return "FC2-PPV-" + tokens[j], "", true
+			}
+			continue
+		}
+
+		if prefixToken.MatchString(t) && containsLetter(t) && i+1 < len(tokens) {
+			if m := numTail.FindStringSubmatch(tokens[i+1]); m != nil {
+				part := ""
+				if i+2 < len(tokens) && partToken.MatchString(tokens[i+2]) {
+					part = tokens[i+2]
+				}
+				return t + "-" + m[1], part, true
+			}
+		}
+
+		if m := gluedCode.FindStringSubmatch(t); m != nil {
+			return m[1] + "-" + m[2], "", true
+		}
 	}
-	return m[1] + "-" + m[2], true
+
+	return "", "", false
+}
+
+func containsLetter(s string) bool {
+	for _, r := range s {
+		if r >= 'A' && r <= 'Z' {
+			return true
+		}
+	}
+	return false
 }

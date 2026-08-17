@@ -1,12 +1,14 @@
 package watcher
 
 import (
+	"context"
 	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
 	"runtime"
 	"testing"
+	"time"
 
 	"github.com/fsnotify/fsnotify"
 )
@@ -77,5 +79,59 @@ func TestResumeIsSafeFromAnyState(t *testing.T) {
 	w.Resume()
 	if w.Paused() {
 		t.Fatalf("expected not paused after Resume")
+	}
+}
+
+// TestDebounceCollapsesEventFlood verifies that a burst of fsnotify
+// Create+Write events for one path (an SMB copy fires many) collapses into
+// a single emit, timed from the last event seen — and that a later, separate
+// write still produces its own emit.
+func TestDebounceCollapsesEventFlood(t *testing.T) {
+	if runtime.GOOS != "windows" && os.Getuid() == 0 {
+		t.Skip("fsnotify behaves unreliably as root in some CI sandboxes")
+	}
+
+	root := t.TempDir()
+	w := New(root, discardLogger())
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go w.Run(ctx)
+
+	time.Sleep(200 * time.Millisecond) // let fsnotify finish registering root
+
+	path := filepath.Join(root, "flood.mp4")
+	for i := 0; i < 10; i++ {
+		if err := os.WriteFile(path, []byte{byte(i)}, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		time.Sleep(50 * time.Millisecond) // stay within debounceDelay of each other
+	}
+
+	select {
+	case got := <-w.Events():
+		if got != path {
+			t.Fatalf("emit = %q, want %q", got, path)
+		}
+	case <-time.After(debounceDelay + 3*time.Second):
+		t.Fatal("expected exactly one emit for the flood, got none")
+	}
+
+	select {
+	case got := <-w.Events():
+		t.Fatalf("unexpected second emit for the same flood: %q", got)
+	case <-time.After(1 * time.Second):
+	}
+
+	if err := os.WriteFile(path, []byte("more"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case got := <-w.Events():
+		if got != path {
+			t.Fatalf("emit = %q, want %q", got, path)
+		}
+	case <-time.After(debounceDelay + 3*time.Second):
+		t.Fatal("expected a second emit after a later, separate write")
 	}
 }

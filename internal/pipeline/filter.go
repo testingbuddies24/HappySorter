@@ -14,9 +14,11 @@ var junkExtensions = map[string]bool{
 	".url": true, ".txt": true, ".html": true, ".part": true, ".torrent": true,
 }
 
-// junkPatterns are matched as substrings against the lowercased filename
-// (SPEC.md § F2).
-var junkPatterns = []string{"sample", "trailer", "preview", "字幕"}
+// junkPatterns are matched as substrings against the lowercased, whitespace-
+// collapsed filename (SPEC.md § F2). "苍老师" catches a recurring ad/filler
+// clip reused verbatim (often letter-spaced, e.g. "苍 老 师 强 力 推 荐.mp4")
+// across many unrelated torrents.
+var junkPatterns = []string{"sample", "trailer", "preview", "字幕", "苍老师"}
 
 const minVideoBytes = 50 * 1024 * 1024 // 50 MB size floor, SPEC.md § F2
 
@@ -45,8 +47,10 @@ func Filter(path string, size int64) FilterResult {
 	}
 
 	name := strings.ToLower(filepath.Base(path))
+	collapsed := strings.Join(strings.Fields(name), "")
 	for _, p := range junkPatterns {
-		if strings.Contains(name, strings.ToLower(p)) {
+		p = strings.ToLower(p)
+		if strings.Contains(name, p) || strings.Contains(collapsed, p) {
 			return FilterResult{Reason: "filename matches junk pattern: " + p}
 		}
 	}

@@ -106,7 +106,7 @@ func (p *Pipeline) process(ctx context.Context, path string) {
 	if err != nil {
 		// Common and harmless: the path was already moved/deleted by a
 		// previous event for the same file, or vanished before we got to it.
-		p.logger.Warn("stat failed, skipping", "path", path, "error", err)
+		p.logger.Info("stat failed, skipping", "path", path, "error", err)
 		return
 	}
 	if info.IsDir() {
@@ -131,7 +131,7 @@ func (p *Pipeline) process(ctx context.Context, path string) {
 		return
 	}
 
-	code, ok := ExtractCode(path)
+	code, part, ok := ExtractCode(path)
 	if !ok {
 		p.route(path, cfg.Paths.ReviewUnmatched, store.StateReviewUnmatched, "", "no JAV code found in filename")
 		return
@@ -152,7 +152,7 @@ func (p *Pipeline) process(ctx context.Context, path string) {
 		return
 	}
 
-	dest, err := p.organiser.Organise(ctx, meta, path)
+	dest, err := p.organiser.Organise(ctx, meta, path, part)
 	if err != nil {
 		var dupErr *organiser.DuplicateError
 		if errors.As(err, &dupErr) {
@@ -171,7 +171,7 @@ func (p *Pipeline) process(ctx context.Context, path string) {
 	if err := p.store.Record(path, dest, store.StateDone, code, ""); err != nil {
 		p.logger.Error("recording organised file", "path", path, "error", err)
 	}
-	p.logger.Info("organised", "path", path, "dest", dest, "code", code)
+	p.logger.Info("organised", "path", path, "dest", dest, "code", code, "part", part)
 }
 
 // lookupMetadata returns cached metadata for code if present (skipping a

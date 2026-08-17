@@ -17,16 +17,22 @@ var migrationsFS embed.FS
 
 // Open opens (creating if needed) the SQLite database at path and applies
 // any pending migrations.
+//
+// busy_timeout and journal_mode are set via DSN _pragma params (not a
+// one-shot db.Exec) so every pooled connection gets them, and the
+// connection pool is capped at 1: modernc.org/sqlite has no single-writer
+// serialization of its own, and concurrent writers (pipeline, HTTP review
+// handlers, the slog DB log handler) were hitting SQLITE_BUSY under
+// production load.
 func Open(path string) (*sql.DB, error) {
-	db, err := sql.Open("sqlite", path)
+	dsn := path + "?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)"
+	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("opening database: %w", err)
 	}
+	db.SetMaxOpenConns(1)
 	if err := db.Ping(); err != nil {
 		return nil, fmt.Errorf("pinging database: %w", err)
-	}
-	if _, err := db.Exec(`PRAGMA journal_mode=WAL;`); err != nil {
-		return nil, fmt.Errorf("setting WAL mode: %w", err)
 	}
 	if err := migrate(db); err != nil {
 		return nil, fmt.Errorf("applying migrations: %w", err)

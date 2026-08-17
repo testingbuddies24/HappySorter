@@ -17,6 +17,16 @@ import (
 
 const pollInterval = 60 * time.Second
 
+// debounceDelay collapses an fsnotify Create+Write flood for one file (SMB
+// copies fire many events per file) into a single emit, timed from the
+// last event seen for that path.
+const debounceDelay = 2 * time.Second
+
+// debounceCheckInterval is how often the debounce map is swept for paths
+// whose delay has elapsed. Adds at most this much latency on top of
+// debounceDelay; kept short since it's cheap (a map scan, no I/O).
+const debounceCheckInterval = 250 * time.Millisecond
+
 // Watcher emits paths of files found under root: an initial full scan on
 // startup (catches anything dropped while offline), a recursive fsnotify
 // watch for near-instant detection, and a periodic poll as a safety net for
@@ -43,7 +53,7 @@ func New(root string, logger *slog.Logger) *Watcher {
 	return &Watcher{
 		root:     root,
 		logger:   logger,
-		events:   make(chan string, 256),
+		events:   make(chan string, 1024),
 		rescanCh: make(chan struct{}, 1),
 	}
 }
@@ -103,6 +113,15 @@ func (w *Watcher) Run(ctx context.Context) {
 	ticker := time.NewTicker(pollInterval)
 	defer ticker.Stop()
 
+	// debounce holds, per path, the time its next emit is due — reset on
+	// every fsnotify event for that path so an SMB copy's Create+Write
+	// flood collapses into one emit, timed from the last event seen. Lives
+	// entirely in this goroutine (no locks/timers needed): the debounceTick
+	// case below is the only place entries are consumed.
+	debounce := make(map[string]time.Time)
+	debounceTick := time.NewTicker(debounceCheckInterval)
+	defer debounceTick.Stop()
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -113,7 +132,7 @@ func (w *Watcher) Run(ctx context.Context) {
 				continue
 			}
 			if ev.Has(fsnotify.Create) || ev.Has(fsnotify.Write) {
-				w.emit(ev.Name)
+				debounce[ev.Name] = time.Now().Add(debounceDelay)
 			}
 		case err, ok := <-fswOrNilErrors(fsw):
 			if !ok {
@@ -121,6 +140,14 @@ func (w *Watcher) Run(ctx context.Context) {
 				continue
 			}
 			w.logger.Error("fsnotify error", "error", err)
+		case <-debounceTick.C:
+			now := time.Now()
+			for path, due := range debounce {
+				if now.After(due) {
+					delete(debounce, path)
+					w.emit(path)
+				}
+			}
 		case <-ticker.C:
 			w.scan() // safety net for NFS/SMB even when fsnotify is active
 		case <-w.rescanCh:
