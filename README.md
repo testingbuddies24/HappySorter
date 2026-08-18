@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="icon.svg" width="104" alt="HappySorter logo: a sorting funnel with a heart dropping out of it">
+<img src="icon.svg" width="104" alt="HappySorter logo: a smirk face on an indigo tile">
 
 # HappySorter
 

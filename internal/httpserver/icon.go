@@ -5,8 +5,8 @@ import (
 	"net/http"
 )
 
-// iconSVG is the app icon: a sorting funnel with a heart dropping out of it
-// on the brand indigo-violet gradient tile (the name, as a picture).
+// iconSVG is the app icon: a kawaii smirk face on the brand indigo
+// gradient tile — wink on one eye, asymmetric smile, cool & monochromatic.
 //
 //go:embed icon.svg
 var iconSVG []byte
