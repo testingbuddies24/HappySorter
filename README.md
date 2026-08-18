@@ -19,7 +19,7 @@ Runs as a single Docker container on a NAS (Synology, QNAP, anything x86_64 / ar
 
 ## Why
 
-The legacy tool at  is a 2015 Windows .NET file-renamer whose backend API has since died. HappySorter is the modern, self-hosted, multi-source equivalent — portable, Docker-native, and not at the mercy of any single website.
+HappySorter is the modern, self-hosted, multi-source organizer for JAV libraries — portable, Docker-native, and not at the mercy of any single website. It's the Docker-deployable successor to the old single-purpose Windows renaming tools, with first-class Jellyfin output.
 
 ## Features
 
@@ -59,7 +59,7 @@ See [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) for the full guide (docker-compos
 | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | Components, data model, scraping flow, config schema |
 | [`docs/ROADMAP.md`](docs/ROADMAP.md) | Build plan — milestone-by-milestone vertical slices |
 | [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) | Docker / docker-compose / NAS-specific deployment |
-| [`docs/research/website-analysis.md`](docs/research/website-analysis.md) | What the original  actually is |
+| [`docs/research/website-analysis.md`](docs/research/website-analysis.md) | Reference site analysis and feature comparison |
 | [`docs/research/jav-metadata-standards.md`](docs/research/jav-metadata-standards.md) | JAV code format, studios, fields |
 | [`docs/research/existing-projects.md`](docs/research/existing-projects.md) | OSS landscape — what already exists and why none of it "won" |
 | [`docs/research/stack-recommendations.md`](docs/research/stack-recommendations.md) | Why Go + SQLite + HTMX |
