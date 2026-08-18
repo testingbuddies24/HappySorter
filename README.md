@@ -67,6 +67,7 @@ See [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) for the full guide (docker-compos
 
 ## Update log
 
+- **v1.0.10** (2026-08-19) — App icon redesigned to a clean kawaii smirk face on the brand indigo gradient tile (matches the dashboard's `--accent`). Dropped the busy funnel-with-heart that clashed with the UI palette.
 - **v1.0.9** (2026-08-19) — FC2 lookups fixed: `fc2.javbus.com` is DNS-dead and JavBus dropped FC2 entirely, so FC2 now resolves through two new sources — **missav** (title, date, studio, genres, cover) and **javmenu** — plus JavDB's search card (its FC2 detail pages went login-only; queries now normalise `FC2-PPV-N` → `FC2-N`). Existing installs gain the new sources automatically on upgrade. Also: app icon (funnel + heart) across dashboard/README, modernised UI (stat tiles with TBC links, dark mode, version + repo footer), and the TBC page's noisy Filtered section moved to the bottom.
 - **v1.0.8** (2026-08-17) — Code extractor rewritten from production log analysis: tolerates filename noise (site watermarks, `_CH`/`_4K`/`-uncensored` markers), multi-part releases (`-1`/`-2` share one folder), FC2-PPV codes, and falls back to the parent folder's code. Fixed SQLite `SQLITE_BUSY` write contention that silently lost "processed" records; hardened the watcher for torrent-completion bursts.
 - **v1.0.7** (2026-07-27) — Field-level metadata merging across sources (plot, genres, series, rating, label fill each other's gaps); metadata and cover-image caching; dashboard live-activity backfill; TBC "refresh from disk"; bulk junk delete.
