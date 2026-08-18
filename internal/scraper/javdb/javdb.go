@@ -48,11 +48,71 @@ func (a *Adapter) Capabilities() scraper.Capabilities {
 }
 
 func (a *Adapter) Lookup(ctx context.Context, code string) (*scraper.Metadata, error) {
+	// FC2 detail pages are login-gated (302 to /login even with over18
+	// cookies — JavDB made FC2 VIP-only), but the search result card is
+	// anonymous and carries the original title and cover, so FC2 lookups
+	// stop at the card.
+	if strings.HasPrefix(strings.ToUpper(code), "FC2") {
+		return a.card(ctx, code)
+	}
 	detailPath, err := a.search(ctx, code)
 	if err != nil {
 		return nil, err
 	}
 	return a.detail(ctx, detailPath)
+}
+
+// card answers an FC2 lookup from the search result card alone. JavDB
+// indexes FC2 entries without the "PPV" segment ("FC2-1234567"), and the
+// fuzzy search only surfaces them when queried in that form — the raw
+// "FC2-PPV-1234567" returns nothing but near-miss neighbours.
+// fc2Query normalises an FC2 code to JavDB's index form: the site indexes
+// "FC2-1234567", never "FC2-PPV-1234567".
+func fc2Query(code string) string {
+	return strings.Replace(strings.ToUpper(code), "FC2-PPV-", "FC2-", 1)
+}
+
+func (a *Adapter) card(ctx context.Context, code string) (*scraper.Metadata, error) {
+	query := fc2Query(code)
+	searchURL := fmt.Sprintf("%s/search?f=all&q=%s", baseURL, url.QueryEscape(query))
+
+	doc, err := a.get(ctx, searchURL)
+	if err != nil {
+		return nil, fmt.Errorf("javdb: search %s: %w", searchURL, err)
+	}
+
+	return parseCard(doc, query)
+}
+
+// parseCard finds the result card whose code exactly matches query and
+// reads its title and cover. The match is a string compare because the
+// fuzzy search happily returns near-miss codes.
+func parseCard(doc *goquery.Document, query string) (*scraper.Metadata, error) {
+	meta := &scraper.Metadata{}
+	doc.Find(".movie-list .item a.box").EachWithBreak(func(_ int, box *goquery.Selection) bool {
+		cardCode := strings.TrimSpace(box.Find(".video-title strong").First().Text())
+		if !strings.EqualFold(cardCode, query) {
+			return true
+		}
+		// The anchor's title attribute holds the full original title; the
+		// visible .video-title text can be elided with an ellipsis.
+		title, ok := box.Attr("title")
+		if !ok || strings.TrimSpace(title) == "" {
+			videoTitle := strings.TrimSpace(box.Find(".video-title").First().Text())
+			title = strings.TrimSpace(strings.TrimPrefix(videoTitle, cardCode))
+		}
+		meta.Title = title
+		if cover, ok := box.Find(".cover img").First().Attr("src"); ok {
+			meta.CoverURL = cover
+			meta.FanartURL = cover
+		}
+		return false
+	})
+
+	if meta.Title == "" {
+		return nil, scraper.ErrNotFound
+	}
+	return meta, nil
 }
 
 // search finds the result card whose code exactly matches (case-

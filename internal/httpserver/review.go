@@ -23,30 +23,32 @@ then click Retry — or Delete to discard the file and its record.</p>
 </form>
 
 {{range .Sections}}
-<h2>{{.Title}}</h2>
+<h2>{{.Title}} <span class="count">{{len .Files}}</span></h2>
 {{if .Emptyable}}
 <form method="post" action="/tbc/empty" onsubmit="return confirm('Delete ALL junk files from disk? This cannot be undone.');" style="margin-bottom:.5rem">
   <input type="hidden" name="state" value="{{.State}}">
-  <button type="submit">Delete all junk</button>
+  <button type="submit" class="btn-danger">Delete all junk</button>
 </form>
 {{end}}
+<div class="table-wrap">
 <table>
   <tr><th>Updated</th><th>Code</th><th>Path</th><th>Reason</th><th>Actions</th></tr>
   {{range .Files}}
   <tr>
-    <td>{{.UpdatedAt.Format "2006-01-02 15:04:05"}}</td>
-    <td>{{.Code}}</td>
-    <td>{{.CurrentPath}}</td>
+    <td class="mono">{{.UpdatedAt.Format "2006-01-02 15:04:05"}}</td>
+    <td class="mono">{{.Code}}</td>
+    <td class="mono">{{.CurrentPath}}</td>
     <td>{{.Reason}}</td>
     <td class="row-actions">
       <form method="post" action="/tbc/retry"><input type="hidden" name="id" value="{{.ID}}"><button type="submit">Retry</button></form>
-      <form method="post" action="/tbc/delete" onsubmit="return confirm('Delete this file from disk?');"><input type="hidden" name="id" value="{{.ID}}"><button type="submit">Delete</button></form>
+      <form method="post" action="/tbc/delete" onsubmit="return confirm('Delete this file from disk?');"><input type="hidden" name="id" value="{{.ID}}"><button type="submit" class="btn-danger">Delete</button></form>
     </td>
   </tr>
   {{else}}
-  <tr><td colspan="5">Nothing here.</td></tr>
+  <tr><td colspan="5" class="empty">Nothing here.</td></tr>
   {{end}}
 </table>
+</div>
 {{end}}
 `))
 
@@ -58,11 +60,13 @@ type reviewSection struct {
 }
 
 func (s *Server) handleReviewGet(w http.ResponseWriter, r *http.Request) {
+	// Filtered (junk) goes last: it is by far the longest list, so the
+	// actionable sections stay visible above the noise.
 	sections := []reviewSection{
-		{Title: "Filtered (rejected as junk/sample)", State: store.StateReviewFilter, Emptyable: true},
 		{Title: "Unmatched (no JAV code found)", State: store.StateReviewUnmatched},
 		{Title: "Duplicate (destination already exists)", State: store.StateReviewDuplicate},
 		{Title: "Failed (scrape or organise error)", State: store.StateFailed},
+		{Title: "Filtered (rejected as junk/sample)", State: store.StateReviewFilter, Emptyable: true},
 	}
 	for i, sec := range sections {
 		files, err := s.fileStore.ListByStates(sec.State)

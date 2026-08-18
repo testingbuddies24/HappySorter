@@ -1,11 +1,17 @@
+<div align="center">
+
+<img src="icon.svg" width="104" alt="HappySorter logo: a sorting funnel with a heart dropping out of it">
+
 # HappySorter
+
+Self-hosted, Docker-deployable organizer for personal JAV media libraries, with first-class [Jellyfin](https://jellyfin.org/) compatibility.
 
 [![CI](https://github.com/testingbuddies24/HappySorter/actions/workflows/ci.yml/badge.svg)](https://github.com/testingbuddies24/HappySorter/actions/workflows/ci.yml)
 [![Release](https://github.com/testingbuddies24/HappySorter/actions/workflows/release.yml/badge.svg)](https://github.com/testingbuddies24/HappySorter/actions/workflows/release.yml)
 [![Latest release](https://img.shields.io/github/v/release/testingbuddies24/HappySorter)](https://github.com/testingbuddies24/HappySorter/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-> Self-hosted, Docker-deployable organizer for personal JAV (Japanese Adult Video) media libraries, with first-class [Jellyfin](https://jellyfin.org/) compatibility.
+</div>
 
 Drop a video file into a watched folder. HappySorter parses the JAV code from the filename, scrapes metadata from multiple sources (with ordered fallback and field-level merging), and lays out the file into a Jellyfin-recognized folder: `<CODE>/<CODE>.mp4` + `<CODE>-poster.jpg` + `<CODE>-fanart.jpg` + `<CODE>.nfo` (folder/file naming is a configurable template, e.g. to include the year).
 
@@ -19,7 +25,7 @@ The legacy tool at  is a 2015 Windows .NET file-renamer whose backend API has si
 
 - 📁 **Folder watcher** — drop files in `/download`, they appear organised in `/sorted`.
 - 🗑️ **Rubbish filter** — junk files (`.url`, `.txt`, samples, trailers) routed to `/TBC/_filter`, one-click bulk delete from the GUI.
-- 🔎 **Multi-source scrape with field-level merging** — S1, IdeaPocket, JavBus, JavDB tried in priority order; the first complete result is filled in with whatever fields (plot, genres, series, rating, label, ...) it's missing from the next source, instead of a single source winning wholesale.
+- 🔎 **Multi-source scrape with field-level merging** — S1, IdeaPocket, JavBus, JavDB, MissAV, JavMenu tried in priority order; the first complete result is filled in with whatever fields (plot, genres, series, rating, label, ...) it's missing from the next source, instead of a single source winning wholesale. MissAV and JavMenu are FC2 specialists — they picked up FC2 lookups after JavBus dropped its FC2 catalogue.
 - 🎬 **Jellyfin-compatible output** — `movie.nfo` (title, plot, genres, rating, series, distributor label, ...) + cropped front-cover poster + full-scan fanart.
 - 📊 **Live dashboard** — last 60 minutes of pipeline activity, streamed in real time.
 - 🔁 **TBC review queue** — retry, delete, or bulk-delete rejected/unmatched/duplicate files from the GUI, with a "Refresh from disk" action that reconciles the queue after manual file edits.
@@ -59,62 +65,22 @@ See [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) for the full guide (docker-compos
 | [`docs/research/stack-recommendations.md`](docs/research/stack-recommendations.md) | Why Go + SQLite + HTMX |
 | [`docs/research/source-test-results.md`](docs/research/source-test-results.md) | Live source probing — Cloudflare findings, source priority, mitigations |
 
-## Project status
+## Update log
 
-✅ **Released — currently v1.0.7, in active use.** The pipeline has four
-working sources: two studio-direct (S1, IdeaPocket) and two aggregators
-(JavBus, JavDB), tried in priority order with real fallback. Files dropped
-into `/download` are triaged (rubbish filter, JAV code extraction), scraped
-live with metadata caching (so multi-disc releases skip re-scraping), and
-merged field-by-field across sources — if the first complete result is
-missing plot, genres, series, rating, or distributor label, remaining
-sources fill in the gaps instead of one source winning wholesale. Output
-lands in a Jellyfin-recognised `<CODE>/` folder with `movie.nfo`, a
-cropped front-cover poster (isolated from the wraparound package scan
-every source serves), and the full scan as fanart. A file that would
-collide with an already-organised release is left alone and routed to
-`TBC/_duplicate/` instead of being overwritten or auto-renamed. Files
-queued for scraping while no source was enabled drain automatically the
-moment a source is turned on — no restart, no manual retry.
+- **v1.0.9** (2026-08-19) — FC2 lookups fixed: `fc2.javbus.com` is DNS-dead and JavBus dropped FC2 entirely, so FC2 now resolves through two new sources — **missav** (title, date, studio, genres, cover) and **javmenu** — plus JavDB's search card (its FC2 detail pages went login-only; queries now normalise `FC2-PPV-N` → `FC2-N`). Existing installs gain the new sources automatically on upgrade. Also: app icon (funnel + heart) across dashboard/README, modernised UI (stat tiles with TBC links, dark mode, version + repo footer), and the TBC page's noisy Filtered section moved to the bottom.
+- **v1.0.8** (2026-08-17) — Code extractor rewritten from production log analysis: tolerates filename noise (site watermarks, `_CH`/`_4K`/`-uncensored` markers), multi-part releases (`-1`/`-2` share one folder), FC2-PPV codes, and falls back to the parent folder's code. Fixed SQLite `SQLITE_BUSY` write contention that silently lost "processed" records; hardened the watcher for torrent-completion bursts.
+- **v1.0.7** (2026-07-27) — Field-level metadata merging across sources (plot, genres, series, rating, label fill each other's gaps); metadata and cover-image caching; dashboard live-activity backfill; TBC "refresh from disk"; bulk junk delete.
+- **v1.0.6** (2026-07-27) — Folders renamed to `download`/`sorted`/`TBC`; live dashboard; poster cropped out of the wraparound package scan; folder-rename fallout repairs (config migration, safer TBC actions).
+- **v1.0.5** (2026-07-20) — Real build version injected into the GUI; `proxy_url` actually wired into the scraper HTTP client.
+- **v1.0.4** (2026-07-20) — Robust code extraction, enriched NFO, GUI redesign, folder-level dedup, duplicate routing to `TBC/_duplicate`.
+- **v1.0.3** (2026-07-19) — Settle gate: never touch a file that is still being copied.
+- **v1.0.2** (2026-07-19) — Watcher always polls (no missed events); `/setup/folders` read-only.
+- **v1.0.1** (2026-07-18) — Release build fix (Dockerfile/go.mod Go version mismatch).
+- **v1.0.0** (2026-07-18) — First release: watcher → rubbish filter → multi-source scrape (S1, IdeaPocket, JavBus, JavDB) → Jellyfin folder layout, setup GUI, TBC review queue, Docker image.
 
-The `/tbc` queue supports retry/delete per file, a "Refresh from disk"
-action that reconciles the queue after manual renames or edits, and a bulk
-"delete all junk" that operates on the actual folder contents (not just
-tracked database rows). The dashboard's live activity feed backfills the
-last 60 minutes on load instead of starting empty. Everything is
-configurable from the web GUI without editing YAML by hand: `/setup/sources`
-(including a proxy URL field for Cloudflare-gated sources), `/setup/rename`,
-`/logs`, and `/rescan`/`/pause`/`/resume` controls — sources and rename
-templates hot-reload without a restart. Folder paths are owned by the
-docker-compose bind mounts; `/setup/folders` shows them read-only. Missing
-or failed cover downloads fall back to a generated placeholder poster.
+**Known gaps:** JavLibrary adapter deferred behind a Cloudflare challenge; per-actress photos not yet implemented.
 
-The container runs non-root with a read-only root filesystem by default,
-and CI (build/vet/format/test) plus a tag-triggered multi-arch GHCR release
-workflow are wired up in `.github/workflows/`. Known gaps: JavLibrary
-remains deferred behind a genuine Cloudflare challenge until a working
-proxy is available to verify selectors against, and per-actress photos are
-not yet implemented (needs a dedicated actress-detail-page scrape per
-adapter).
-
-A production log review surfaced the code extractor's biggest real-world
-weakness: any unrecognised trailing noise in a filename (a release-site
-domain, `_CH`/`_4K`/`-uncensored` markers, a multi-part `-1`/`-2` suffix, a
-`site@` watermark prefix) failed the match outright and forced a manual
-rename. The extractor was rewritten to scan for a code token instead of
-requiring an exact whole-filename match, added multi-part release support
-(`CODE (year)-1.mp4` / `-2.mp4` sharing one folder), FC2-PPV code
-recognition, and a one-level parent-folder fallback for files whose own
-name carries no code but whose torrent folder does. Also fixed in this
-pass: a SQLite write-contention bug (`SQLITE_BUSY` under concurrent
-writers) that was silently losing "file processed" records and causing
-duplicate copies to pile up in `TBC/_filter`, and a watcher event-buffer/
-debounce hardening for large torrent-completion bursts. See
-`docs/ROADMAP.md`'s Milestone 5 addendum for the full writeup, including a
-couple of consciously-accepted behaviour trade-offs.
-
-For a hands-on sandbox to run the server yourself and drop test files in,
-see [`testbed/README.md`](testbed/README.md).
+For a hands-on sandbox to run the server yourself and drop test files in, see [`testbed/README.md`](testbed/README.md).
 
 ## Repository layout
 

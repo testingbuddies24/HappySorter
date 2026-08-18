@@ -83,9 +83,9 @@ var sourcesTmpl = template.Must(template.New("sources").Parse(`
 
     <label for="proxy_url">Proxy URL</label>
     <input type="text" id="proxy_url" name="proxy_url" value="{{.ProxyURL}}" placeholder="http://host:port or https://<worker>.workers.dev">
-    <small class="hint">Only needed for Cloudflare-gated sources. Studio-direct sources (s1, ideapocket) and javbus/javdb work without one. Leave empty to go direct. See deploy/cf-worker/worker.js for a ready-to-deploy forwarder.</small>
+    <small class="hint">Only needed for Cloudflare-gated sources. Studio-direct sources (s1, ideapocket) and javbus/javdb/missav/javmenu work without one. Leave empty to go direct. See deploy/cf-worker/worker.js for a ready-to-deploy forwarder.</small>
 
-    <button type="submit">Save</button>
+    <button type="submit" class="btn-primary">Save</button>
   </fieldset>
 </form>
 `))
@@ -168,7 +168,7 @@ var renameTmpl = template.Must(template.New("rename").Parse(`
     <input type="text" id="unknown_placeholder" name="unknown_placeholder" value="{{.UnknownPlaceholder}}">
 
     <small class="hint">Available tokens: {code}, {year}</small>
-    <button type="submit">Save</button>
+    <button type="submit" class="btn-primary">Save</button>
   </fieldset>
 </form>
 `))

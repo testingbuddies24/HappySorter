@@ -86,6 +86,7 @@ func (s *Server) Handler() http.Handler {
 func (s *Server) routes() {
 	s.mux.HandleFunc("GET /{$}", s.handleDashboard)
 	s.mux.HandleFunc("GET /healthz", s.handleHealthz)
+	s.mux.HandleFunc("GET /favicon.svg", s.handleIcon)
 
 	s.mux.HandleFunc("GET /setup/folders", s.handleFoldersGet)
 	s.mux.HandleFunc("POST /setup/folders", s.handleFoldersPost)
@@ -125,23 +126,26 @@ func (s *Server) handleReviewRedirect(w http.ResponseWriter, r *http.Request) {
 }
 
 var dashboardTmpl = template.Must(template.New("dashboard").Parse(`
-<p class="meta">Version {{.Version}} &middot; up since {{.StartedAt}} &middot; watcher is <strong>{{if .Paused}}paused{{else}}running{{end}}</strong></p>
+<p class="meta">Up since {{.StartedAt}} &middot; watcher is <strong>{{if .Paused}}paused{{else}}running{{end}}</strong></p>
 
 <div class="toolbar">
   <form method="post" action="{{if .Paused}}/resume{{else}}/pause{{end}}">
-    <button type="submit">{{if .Paused}}Resume{{else}}Pause{{end}} watcher</button>
+    <button type="submit" class="btn-primary">{{if .Paused}}Resume{{else}}Pause{{end}} watcher</button>
   </form>
   <form method="post" action="/rescan">
     <button type="submit">Trigger rescan</button>
   </form>
-  <button type="button" id="copy-logs">📋 Copy all logs</button>
+  <button type="button" id="copy-logs">Copy all logs</button>
 </div>
 
 <h2>Queue</h2>
-<table>
-  <tr><th>State</th><th>Count</th></tr>
-  {{range .Counts}}<tr><td>{{.Label}}</td><td>{{.Count}}</td></tr>{{end}}
-</table>
+<div class="tiles">
+{{range .Counts}}
+  {{if .Link}}<a class="tile" href="{{.Link}}"><span class="num">{{.Count}}</span><span class="lbl">{{.Label}}</span></a>
+  {{else}}<div class="tile"><span class="num">{{.Count}}</span><span class="lbl">{{.Label}}</span></div>
+  {{end}}
+{{end}}
+</div>
 
 <h2>Live activity <span style="font-weight:400;font-size:.8rem;color:var(--muted)">(last 60 min, streaming)</span></h2>
 <div class="toolbar">
@@ -155,6 +159,7 @@ var dashboardTmpl = template.Must(template.New("dashboard").Parse(`
   </select>
 </div>
 
+<div class="table-wrap">
 <table id="live-log">
   <thead>
     <tr><th style="width:9rem">Time</th><th>Level</th><th>Message</th><th>Fields</th></tr>
@@ -163,6 +168,7 @@ var dashboardTmpl = template.Must(template.New("dashboard").Parse(`
     <tr><td colspan="4">Waiting for activity…</td></tr>
   </tbody>
 </table>
+</div>
 
 <script>
 (() => {
@@ -188,6 +194,7 @@ var dashboardTmpl = template.Must(template.New("dashboard").Parse(`
 
     const tdTime = document.createElement("td");
     tdTime.textContent = time;
+    tdTime.className = "mono";
     tr.appendChild(tdTime);
 
     const tdLevel = document.createElement("td");
@@ -204,6 +211,7 @@ var dashboardTmpl = template.Must(template.New("dashboard").Parse(`
 
     const tdFields = document.createElement("td");
     tdFields.textContent = fields;
+    tdFields.className = "mono";
     tr.appendChild(tdFields);
 
     if (animate) {
@@ -258,11 +266,11 @@ var dashboardTmpl = template.Must(template.New("dashboard").Parse(`
       const resp = await fetch("/api/logs/text?limit=500");
       const text = await resp.text();
       await navigator.clipboard.writeText(text);
-      copyBtn.textContent = "✓ Copied!";
-      setTimeout(() => copyBtn.textContent = "📋 Copy all logs", 2000);
+      copyBtn.textContent = "Copied!";
+      setTimeout(() => copyBtn.textContent = "Copy all logs", 2000);
     } catch (err) {
-      copyBtn.textContent = "✗ Failed";
-      setTimeout(() => copyBtn.textContent = "📋 Copy all logs", 2000);
+      copyBtn.textContent = "Copy failed";
+      setTimeout(() => copyBtn.textContent = "Copy all logs", 2000);
     }
   });
 
@@ -292,6 +300,7 @@ var dashboardTmpl = template.Must(template.New("dashboard").Parse(`
 type countRow struct {
 	Label string
 	Count int
+	Link  string
 }
 
 func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
@@ -308,23 +317,28 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		store.StateReviewDuplicate: "TBC: duplicate",
 		store.StateFailed:          "Failed",
 	}
+	// Counts that need attention link through to the TBC queue.
+	links := map[store.FileState]string{
+		store.StateReviewFilter:    "/tbc",
+		store.StateReviewUnmatched: "/tbc",
+		store.StateReviewDuplicate: "/tbc",
+		store.StateFailed:          "/tbc",
+	}
 	counts := make([]countRow, 0, len(states))
 	for _, st := range states {
 		n, err := s.fileStore.CountByState(st)
 		if err != nil {
 			s.logger.Error("counting files by state", "state", st, "error", err)
 		}
-		counts = append(counts, countRow{Label: labels[st], Count: n})
+		counts = append(counts, countRow{Label: labels[st], Count: n, Link: links[st]})
 	}
 
 	var buf bytes.Buffer
 	err := dashboardTmpl.Execute(&buf, struct {
-		Version   string
 		StartedAt string
 		Paused    bool
 		Counts    []countRow
 	}{
-		Version:   Version,
 		StartedAt: s.startedAt.Format(time.RFC3339),
 		Paused:    s.watcher.Paused(),
 		Counts:    counts,

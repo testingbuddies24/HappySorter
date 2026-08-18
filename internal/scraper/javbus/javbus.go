@@ -24,15 +24,6 @@ import (
 
 const baseURL = "https://www.javbus.com"
 
-// fc2BaseURL is JavBus's separate FC2 catalogue subdomain. Unverified as of
-// 2026-08-17: fc2.javbus.com currently has no DNS record at all (NODATA
-// from both Google and Cloudflare resolvers against javbus.com's own
-// authoritative nameservers) — not a geo-block, the subdomain appears to be
-// down or retired. This URL/selector pairing is the documented convention
-// used across the JAV-tooling ecosystem and is wired up ready to go, but
-// must be re-probed against a live response before trusting its output.
-const fc2BaseURL = "https://fc2.javbus.com"
-
 var runtimeRegex = regexp.MustCompile(`(\d+)\s*分`)
 
 type Adapter struct {
@@ -57,11 +48,17 @@ func (a *Adapter) Capabilities() scraper.Capabilities {
 }
 
 // Lookup fetches the JavBus detail page directly for code.
+//
+// FC2 codes get an immediate not-found: fc2.javbus.com lost its DNS record
+// (verified 2026-08-19: NODATA from javbus.com's own authoritative
+// nameservers), and the main domain returns a real 404 page for every FC2
+// URL form (/FC2-PPV-4956891, /FC2-4956891). JavBus no longer hosts FC2
+// content — the missav/javmenu/javdb-card adapters own those codes now.
 func (a *Adapter) Lookup(ctx context.Context, code string) (*scraper.Metadata, error) {
-	url := fmt.Sprintf("%s/%s", baseURL, code)
-	if strings.HasPrefix(code, "FC2-PPV-") {
-		url = fmt.Sprintf("%s/%s", fc2BaseURL, code)
+	if strings.HasPrefix(strings.ToUpper(code), "FC2") {
+		return nil, scraper.ErrNotFound
 	}
+	url := fmt.Sprintf("%s/%s", baseURL, code)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {

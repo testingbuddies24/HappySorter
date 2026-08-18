@@ -79,7 +79,9 @@ func Default() *Config {
 			{Name: "ideapocket", Enabled: false, Priority: 2, QPS: 1.0},
 			{Name: "javbus", Enabled: false, Priority: 3, QPS: 1.0},
 			{Name: "javdb", Enabled: false, Priority: 4, QPS: 1.0},
-			{Name: "javlibrary", Enabled: false, Priority: 5, QPS: 0.5},
+			{Name: "missav", Enabled: false, Priority: 5, QPS: 1.0},
+			{Name: "javmenu", Enabled: false, Priority: 6, QPS: 1.0},
+			{Name: "javlibrary", Enabled: false, Priority: 7, QPS: 0.5},
 		},
 		Rename: RenameConfig{
 			FolderTemplate:     "{code}",
@@ -109,7 +111,32 @@ func Load(path string) (*Config, error) {
 		return nil, fmt.Errorf("parsing config: %w", err)
 	}
 	migrateLegacyPaths(cfg)
+	migrateNewSources(cfg)
 	return cfg, nil
+}
+
+// migrateNewSources appends sources introduced after a config.yaml was
+// first written. YAML arrays replace wholesale on unmarshal, so a file
+// saved before a source existed never sees it no matter what Default()
+// lists — the FC2 sources (missav, javmenu) would otherwise never reach
+// deployments that need them. They join enabled, at priorities after the
+// classic set (45/55 rather than the fresh-install 5/6 so they can't
+// collide with an existing javlibrary=5): both are plain-GET with no proxy
+// or login, the same risk class as the javbus/javdb the deployment already
+// enabled. Removing one is a single untick in the setup GUI.
+func migrateNewSources(cfg *Config) {
+	have := make(map[string]bool, len(cfg.Sources))
+	for _, s := range cfg.Sources {
+		have[s.Name] = true
+	}
+	for _, add := range []SourceConfig{
+		{Name: "missav", Enabled: true, Priority: 45, QPS: 1.0},
+		{Name: "javmenu", Enabled: true, Priority: 55, QPS: 1.0},
+	} {
+		if !have[add.Name] {
+			cfg.Sources = append(cfg.Sources, add)
+		}
+	}
 }
 
 // migrateLegacyPaths remaps Default()'s pre-rename Paths values (before the

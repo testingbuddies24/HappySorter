@@ -15,6 +15,8 @@ import (
 	"github.com/testingbuddies24/HappySorter/internal/scraper/ideapocket"
 	"github.com/testingbuddies24/HappySorter/internal/scraper/javbus"
 	"github.com/testingbuddies24/HappySorter/internal/scraper/javdb"
+	"github.com/testingbuddies24/HappySorter/internal/scraper/javmenu"
+	"github.com/testingbuddies24/HappySorter/internal/scraper/missav"
 	"github.com/testingbuddies24/HappySorter/internal/scraper/s1"
 )
 
@@ -46,6 +48,10 @@ func BuildAdapters(sources []config.SourceConfig, client *http.Client, logger *s
 			adapters = append(adapters, javbus.New(client))
 		case "javdb":
 			adapters = append(adapters, javdb.New(client))
+		case "missav":
+			adapters = append(adapters, missav.New(client))
+		case "javmenu":
+			adapters = append(adapters, javmenu.New(client))
 		default:
 			logger.Warn("source enabled in config but no adapter implemented yet", "source", sc.Name)
 		}

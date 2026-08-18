@@ -12,33 +12,39 @@ import (
 )
 
 var logsTmpl = template.Must(template.New("logs").Parse(`
-<form method="get" action="/logs">
-  <label for="level">Level</label>
-  <select id="level" name="level">
-    <option value=""{{if eq .Level ""}} selected{{end}}>All</option>
-    <option value="debug"{{if eq .Level "debug"}} selected{{end}}>Debug</option>
-    <option value="info"{{if eq .Level "info"}} selected{{end}}>Info</option>
-    <option value="warn"{{if eq .Level "warn"}} selected{{end}}>Warn</option>
-    <option value="error"{{if eq .Level "error"}} selected{{end}}>Error</option>
-  </select>
-  <label for="limit">Show last</label>
-  <input type="number" id="limit" name="limit" value="{{.Limit}}" style="width:6rem">
+<form method="get" action="/logs" class="filter">
+  <div>
+    <label for="level">Level</label>
+    <select id="level" name="level">
+      <option value=""{{if eq .Level ""}} selected{{end}}>All</option>
+      <option value="debug"{{if eq .Level "debug"}} selected{{end}}>Debug</option>
+      <option value="info"{{if eq .Level "info"}} selected{{end}}>Info</option>
+      <option value="warn"{{if eq .Level "warn"}} selected{{end}}>Warn</option>
+      <option value="error"{{if eq .Level "error"}} selected{{end}}>Error</option>
+    </select>
+  </div>
+  <div>
+    <label for="limit">Show last</label>
+    <input type="number" id="limit" name="limit" value="{{.Limit}}">
+  </div>
   <button type="submit">Filter</button>
 </form>
 
+<div class="table-wrap">
 <table>
   <tr><th>Time</th><th>Level</th><th>Message</th><th>Fields</th></tr>
   {{range .Records}}
   <tr>
-    <td>{{.Time.Format "2006-01-02 15:04:05"}}</td>
+    <td class="mono">{{.Time.Format "2006-01-02 15:04:05"}}</td>
     <td><span class="badge" data-level="{{.Level}}">{{.Level}}</span></td>
     <td>{{.Message}}</td>
-    <td>{{.Fields}}</td>
+    <td class="mono">{{.Fields}}</td>
   </tr>
   {{else}}
-  <tr><td colspan="4">No log entries.</td></tr>
+  <tr><td colspan="4" class="empty">No log entries.</td></tr>
   {{end}}
 </table>
+</div>
 `))
 
 func (s *Server) handleLogs(w http.ResponseWriter, r *http.Request) {

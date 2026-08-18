@@ -12,14 +12,18 @@ var layoutTmpl = template.Must(template.New("layout").Parse(`<!DOCTYPE html>
   <meta charset="utf-8">
   <title>{{.Title}} &middot; HappySorter</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
   <style>
     :root {
+      color-scheme: light dark;
       --bg: #eef1f7; --surface: #ffffff; --surface-2: #f4f6fb; --border: #e0e4ee;
       --text: #1b1e28; --muted: #6a7185; --accent: #5b5bd6; --accent-hover: #4a4ac2;
       --accent-soft: #ecebfb; --on-accent: #ffffff;
       --ok: #16a34a; --ok-soft: #e7f6ec; --warn: #b45309; --warn-soft: #fbf0dd;
       --err: #dc2626; --err-soft: #fbe9e9; --info: #2563eb; --info-soft: #e7eefc;
-      --radius: 12px; --shadow: 0 1px 2px rgba(20,25,40,.06), 0 6px 20px rgba(20,25,40,.05);
+      --radius: 12px; --radius-sm: 8px;
+      --shadow: 0 1px 2px rgba(20,25,40,.06), 0 6px 20px rgba(20,25,40,.05);
+      --mono: ui-monospace, "Cascadia Mono", "SF Mono", Menlo, Consolas, monospace;
     }
     @media (prefers-color-scheme: dark) {
       :root {
@@ -38,6 +42,8 @@ var layoutTmpl = template.Must(template.New("layout").Parse(`<!DOCTYPE html>
       margin: 0; background: var(--bg); color: var(--text);
       font-size: 15px; line-height: 1.5;
     }
+    code, .mono { font-family: var(--mono); font-size: .85em; }
+    code { background: var(--surface-2); padding: .08em .35em; border-radius: 4px; }
 
     .topbar {
       position: sticky; top: 0; z-index: 10;
@@ -49,9 +55,8 @@ var layoutTmpl = template.Must(template.New("layout").Parse(`<!DOCTYPE html>
     }
     .brand { display: flex; align-items: center; gap: .55rem; font-weight: 700; letter-spacing: -.02em; text-decoration: none; color: var(--text); }
     .brand .mark {
-      display: grid; place-items: center; width: 30px; height: 30px; border-radius: 8px;
-      background: linear-gradient(135deg, var(--accent), #8b5cf6); color: #fff;
-      font-size: .85rem; font-weight: 800; box-shadow: var(--shadow);
+      display: block; width: 30px; height: 30px;
+      border-radius: 8px; box-shadow: var(--shadow);
     }
     .brand .name { font-size: 1.05rem; }
     nav { display: flex; gap: .25rem; flex-wrap: wrap; margin-left: auto; }
@@ -62,7 +67,12 @@ var layoutTmpl = template.Must(template.New("layout").Parse(`<!DOCTYPE html>
     nav a:hover { color: var(--text); background: var(--surface-2); }
     nav a.active { color: var(--accent); background: var(--accent-soft); }
 
-    main { max-width: 1040px; margin: 1.75rem auto; padding: 0 1.25rem 3rem; }
+    main { max-width: 1040px; margin: 1.75rem auto; padding: 0 1.25rem 1.5rem; }
+    .footer {
+      max-width: 1040px; margin: 0 auto; padding: 0 1.25rem 2.5rem;
+      color: var(--muted); font-size: .82rem;
+    }
+    .footer a { color: inherit; }
     h1, h2 { letter-spacing: -.02em; }
     h2 { font-size: 1.15rem; margin: 2rem 0 .75rem; }
     main > h2:first-child, main > p:first-child { margin-top: .25rem; }
@@ -94,7 +104,7 @@ var layoutTmpl = template.Must(template.New("layout").Parse(`<!DOCTYPE html>
     td { border-top: 1px solid var(--border); }
     tr:first-child td { border-top: none; }
     tbody tr:hover td, table tr:hover td { background: var(--surface-2); }
-    td:has(a), td:nth-child(4) { word-break: break-all; }
+    td { overflow-wrap: break-word; }
 
     .badge {
       display: inline-block; padding: .12rem .55rem; border-radius: 999px;
@@ -115,7 +125,7 @@ var layoutTmpl = template.Must(template.New("layout").Parse(`<!DOCTYPE html>
     }
     legend { font-weight: 700; padding: 0 .4rem; letter-spacing: -.01em; }
     label { display: block; margin: .8rem 0 .25rem; font-weight: 600; font-size: .9rem; }
-    small.hint { display: block; color: var(--muted); font-weight: 400; margin-top: .2rem; font-size: .82rem; }
+    .hint { display: block; color: var(--muted); font-weight: 400; margin-top: .2rem; font-size: .82rem; }
     input[type=text], input[type=number], select {
       width: 100%; max-width: 480px; padding: .45rem .6rem; font-size: .9rem;
       color: var(--text); background: var(--surface); border: 1px solid var(--border);
@@ -127,27 +137,75 @@ var layoutTmpl = template.Must(template.New("layout").Parse(`<!DOCTYPE html>
     }
     input[type=checkbox] { width: 1.05rem; height: 1.05rem; accent-color: var(--accent); vertical-align: -2px; }
 
+    /* Buttons: secondary by default; .btn-primary marks the page's main
+       action, .btn-danger the destructive ones. */
     button {
       font: inherit; font-weight: 600; font-size: .88rem; padding: .5rem 1rem;
-      color: var(--on-accent); background: var(--accent); border: 1px solid transparent;
-      border-radius: 8px; cursor: pointer; transition: background .15s;
+      color: var(--text); background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius-sm); cursor: pointer;
+      transition: background .15s, border-color .15s, transform .05s;
     }
-    button:hover { background: var(--accent-hover); }
-    /* Secondary + destructive variants keyed off the form's action. */
-    form[action="/rescan"] button, form[action="/review/retry"] button, form[action="/tbc/retry"] button {
-      background: var(--surface); color: var(--text); border-color: var(--border);
+    button:hover {
+      background: var(--surface-2);
+      border-color: color-mix(in srgb, var(--accent) 35%, var(--border));
     }
-    form[action="/rescan"] button:hover, form[action="/review/retry"] button:hover, form[action="/tbc/retry"] button:hover { background: var(--surface-2); }
-    form[action="/review/delete"] button, form[action="/review/empty"] button, form[action="/tbc/delete"] button, form[action="/tbc/empty"] button {
-      background: var(--surface); color: var(--err); border-color: color-mix(in srgb, var(--err) 40%, transparent);
-    }
-    form[action="/review/delete"] button:hover, form[action="/review/empty"] button:hover, form[action="/tbc/delete"] button:hover, form[action="/tbc/empty"] button:hover { background: var(--err-soft); }
+    button:active { transform: translateY(1px); }
+    button:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+    .btn-primary { color: var(--on-accent); background: var(--accent); border-color: transparent; }
+    .btn-primary:hover { background: var(--accent-hover); border-color: transparent; }
+    .btn-danger { color: var(--err); border-color: color-mix(in srgb, var(--err) 40%, transparent); }
+    .btn-danger:hover { background: var(--err-soft); border-color: color-mix(in srgb, var(--err) 55%, transparent); }
     .row-actions form { display: inline; margin-right: .3rem; }
+
+    /* Dashboard stat tiles. */
+    .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: .75rem; margin: .75rem 0 1.5rem; }
+    .tile {
+      background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+      box-shadow: var(--shadow); padding: .9rem 1rem;
+      color: var(--text); text-decoration: none;
+    }
+    a.tile:hover { border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); }
+    a.tile .lbl::after { content: " \2192"; color: var(--accent); }
+    a.tile:hover .lbl { color: var(--accent); }
+    .tile .num { display: block; font-size: 1.65rem; font-weight: 750; line-height: 1.2; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+    .tile .lbl { color: var(--muted); font-size: .8rem; font-weight: 600; }
+
+    /* Section heading count chip (TBC sections). */
+    .count {
+      display: inline-block; min-width: 1.4rem; padding: .05rem .45rem; margin-left: .3rem;
+      border-radius: 999px; background: var(--surface-2); border: 1px solid var(--border);
+      color: var(--muted); font-size: .78rem; font-weight: 700; text-align: center;
+      font-variant-numeric: tabular-nums; vertical-align: 2px;
+    }
+
+    /* Wide tables scroll sideways instead of squashing path/code columns. */
+    .table-wrap { overflow-x: auto; }
+    .table-wrap table { min-width: 640px; }
+    td.empty { text-align: center; color: var(--muted); padding: 1.4rem .85rem; }
+
+    /* Folders page definition list. */
+    dl {
+      display: grid; grid-template-columns: max-content 1fr; gap: .55rem 1.25rem;
+      background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+      box-shadow: var(--shadow); padding: 1.1rem 1.25rem; margin: .75rem 0 1.5rem;
+    }
+    dt { color: var(--muted); font-weight: 600; font-size: .88rem; }
+    dd { margin: 0; font-family: var(--mono); font-size: .85rem; overflow-wrap: break-word; }
+
+    /* Logs page filter bar. */
+    form.filter { display: flex; gap: .6rem; align-items: end; flex-wrap: wrap; margin: 1rem 0; }
+    form.filter label { display: block; margin: 0 0 .25rem; font-size: .82rem; color: var(--muted); }
+    form.filter input[type=number] { width: 6rem; }
+    form.filter select { width: auto; }
+
+    @media (prefers-reduced-motion: reduce) {
+      * { transition: none !important; }
+    }
   </style>
 </head>
 <body>
   <header class="topbar">
-    <a class="brand" href="/"><span class="mark">HS</span><span class="name">HappySorter</span></a>
+    <a class="brand" href="/"><img class="mark" src="/favicon.svg" alt="" width="30" height="30"><span class="name">HappySorter</span></a>
     <nav>
       <a href="/"{{if eq .Path "/"}} class="active"{{end}}>Dashboard</a>
       <a href="/setup/folders"{{if eq .Path "/setup/folders"}} class="active"{{end}}>Folders</a>
@@ -161,16 +219,21 @@ var layoutTmpl = template.Must(template.New("layout").Parse(`<!DOCTYPE html>
     {{if .Flash}}<p class="flash{{if .Warn}} warn{{end}}">{{.Flash}}</p>{{end}}
     {{.Body}}
   </main>
+  <footer class="footer">
+    HappySorter <span class="mono">{{.Version}}</span> &middot;
+    <a href="https://github.com/testingbuddies24/HappySorter" target="_blank" rel="noopener">GitHub repo</a>
+  </footer>
 </body>
 </html>
 `))
 
 type pageData struct {
-	Title string
-	Path  string
-	Flash string
-	Warn  bool
-	Body  template.HTML
+	Title   string
+	Path    string
+	Version string
+	Flash   string
+	Warn    bool
+	Body    template.HTML
 }
 
 // render writes the layout with body (already-rendered, trusted HTML)
@@ -178,11 +241,12 @@ type pageData struct {
 func (s *Server) render(w http.ResponseWriter, r *http.Request, title string, body template.HTML) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	data := pageData{
-		Title: title,
-		Path:  r.URL.Path,
-		Flash: r.URL.Query().Get("msg"),
-		Warn:  r.URL.Query().Get("warn") == "1",
-		Body:  body,
+		Title:   title,
+		Path:    r.URL.Path,
+		Version: Version,
+		Flash:   r.URL.Query().Get("msg"),
+		Warn:    r.URL.Query().Get("warn") == "1",
+		Body:    body,
 	}
 	if err := layoutTmpl.Execute(w, data); err != nil {
 		s.logger.Error("rendering page", "error", err)
