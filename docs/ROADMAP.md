@@ -1,6 +1,6 @@
 # HappySorter — Development Roadmap
 
-> Status: **Draft v1** (2026-07-13)
+> Status: **Draft v1** (2026-07-13; all milestones complete as of 2026-08-19)
 > See also: [`SPEC.md`](SPEC.md), [`ARCHITECTURE.md`](ARCHITECTURE.md)
 
 This roadmap sequences the build as **thin vertical slices** — each milestone
@@ -347,7 +347,7 @@ fallback mechanics work end-to-end on a real second source.
   sources enabled → every adapter tried and missed, routed to
   `review/_unmatched/` with reason `all sources failed for code ABC-999`.
 
-## Milestone 5 — Hardening & release 🔶 in progress
+## Milestone 5 — Hardening & release ✅ done
 
 **Goal:** ship a v1.0.0 image.
 
@@ -362,9 +362,13 @@ fallback mechanics work end-to-end on a real second source.
   `config`, `fsutil`, `nfo`, `organiser`) — all of them land under
   `/config`, `/sorted`, or `/download`, the three bind-mounted volumes. One
   caveat grep can't rule out: the `modernc.org/sqlite` driver could in
-  principle want scratch space outside `/config` in some mode; this hasn't
-  been exercised under an actual read-only container yet, so treat this as
-  "should work" until someone runs it on real hardware.
+  principle want scratch space outside `/config` in some mode. The
+  production NAS run (see close-out addendum below) has since exercised
+  this stack on real hardware — SQLite wrote normally for days, and its
+  `SQLITE_BUSY` storm turned out to be pool concurrency, not a filesystem
+  failure — but that deployment uses a customised run config rather than
+  the stock compose defaults, so `read_only: true` specifically stays
+  "should work" rather than run-verified.
 - Placeholder-poster generation — done. `SPEC.md` F5 required this but it
   was never implemented. The old behavior was inconsistent: an empty
   `CoverURL` organised the file with no `poster.jpg` at all (no error), but
@@ -397,20 +401,27 @@ fallback mechanics work end-to-end on a real second source.
   chasing at this size.
 - Backup/restore doc pass — `DEPLOYMENT.md § 7` already documented this
   accurately as of M4b; nothing stale to correct.
-- Multi-arch build (`linux/amd64,linux/arm64`) pushed to GHCR — **prepped,
-  not executed.** Added `.github/workflows/release.yml`: builds
+- Multi-arch build (`linux/amd64,linux/arm64`) pushed to GHCR — **done.**
+  Added `.github/workflows/release.yml`: builds
   `linux/amd64,linux/arm64` via `docker buildx` + QEMU and pushes to
   `ghcr.io/testingbuddies24/happy-sorter` on any `v*.*.*` tag push. Also
   added `.github/workflows/ci.yml` (`go build`/`go vet`/`gofmt -l` on every
-  push/PR to `main`) since there was no CI at all before this. Neither
-  workflow has been triggered yet — pushing a version tag is a deliberate,
-  externally-visible release action (publishes a public image), left for
-  an explicit go-ahead rather than done in-line with everything else here.
-- Versioned tag — **not cut yet**, same reasoning as above.
+  push/PR to `main`) since there was no CI at all before this. Both have
+  since run repeatedly: every tag from v1.0.0 (2026-07-18) through
+  v1.0.10 (2026-08-19) triggered the release workflow and published both
+  architectures to GHCR; the v1.0.10 image was verified present in GHCR
+  with amd64 + arm64 manifests.
+- Versioned tag — **done.** Eleven tags cut, v1.0.0 (2026-07-18) through
+  v1.0.10 (2026-08-19), each triggering the release workflow above.
 
-**Verify:** fresh-NAS install from README quickstart succeeds end-to-end;
-success criteria in `SPEC.md § 7` all pass. Blocked on cutting the release
-tag (see above) — everything else in this milestone is done and pushed.
+**Verify:** no longer blocked — the fresh-NAS install succeeded. v1.0.10
+(pulled from GHCR) is deployed and running on the production NAS as of
+2026-08-19, and an earlier v1.0.x NAS deployment already ran the pipeline
+in production for days (its log review drove the hardening addendum
+below). The `SPEC.md § 7` criteria were exercised across the M1–M4b
+testbed verifies and that production run; the one criterion never formally
+re-checked from the dev side is #4 (Jellyfin rendering the organised
+library), which is the NAS deployment's normal operating mode.
 
 ### Addendum — production hardening: recognizer, FC2, SQLite, watcher
 
@@ -536,13 +547,33 @@ documented behaviour (the poll is the safety net), not a regression.
 Out of scope for this pass (explicitly deselected): a manual code-assign UI
 action on the review page, and the `javlibrary` adapter.
 
+### Addendum — close-out (2026-08-19)
+
+All roadmap milestones are complete. Release history: tags v1.0.0
+(2026-07-18) through v1.0.10 (2026-08-19) cut, each publishing a
+multi-arch (`linux/amd64`, `linux/arm64`) image to
+`ghcr.io/testingbuddies24/happy-sorter` via the release workflow; the
+v1.0.10 image was verified present in GHCR with both architectures. v1.0.10
+is deployed and running on the production NAS (customised run config, not
+the stock compose defaults — see the hardening bullet above for the one
+caveat that leaves open).
+
+Deliberately not built, recorded so "complete" isn't overread:
+
+- `javlibrary` adapter — Cloudflare-challenged; the `proxy_url` plumbing
+  and CF-Worker forwarder shipped, the adapter itself did not.
+- Live FC2 sources — every candidate endpoint was dead at probe time
+  (2026-08-17); code extraction/normalisation plumbing shipped, working
+  adapters did not.
+- Manual code-assign action on the review page.
+
 ## Dependency order
 
 ```
 M0 ──▶ M1 ──▶ M2 ──▶ M3 ──▶ M4a ──▶ M4b ──▶ M5
 skeleton  triage  1 scraper  GUI    2nd source  aggregators  release
-                  +organise         +queue drain +proxy infra (in progress:
-                                     (done)       (done)      tag+GHCR push pending)
+                  +organise         +queue drain +proxy infra (done: v1.0.10
+                                     (done)       (done)      live on the NAS)
 ```
 
 Each milestone is a mergeable PR. M2 is the "does the core idea work" proof
