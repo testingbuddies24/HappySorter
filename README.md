@@ -30,7 +30,7 @@ HappySorter is the modern, self-hosted, multi-source organizer for JAV libraries
 - 📊 **Live dashboard** — last 60 minutes of pipeline activity, streamed in real time.
 - 🔁 **TBC review queue** — retry, delete, or bulk-delete rejected/unmatched/duplicate files from the GUI, with a "Refresh from disk" action that reconciles the queue after manual file edits.
 - 🐳 **One container** — ~30–80 MB final image, multi-arch (`linux/amd64`, `linux/arm64`), idle RAM ≤ 100 MB.
-- 🖥️ **Web GUI for setup** — configure folders, sources, rename template, view logs.
+- 🖥️ **Web GUI for setup** — configure folders, sources, rename template, view/download logs.
 - 🔄 **Crash-safe** — pipeline state in SQLite; container restart resumes from where it left off.
 
 ## Quickstart

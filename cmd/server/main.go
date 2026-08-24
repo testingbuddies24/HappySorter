@@ -69,14 +69,14 @@ func run() error {
 
 	pl := pipeline.New(cfgStore, fileStore, metaStore, managerStore, org, logger)
 
-	srv := httpserver.New(logger, cfgStore, fileStore, logStore, managerStore, pl, fileWatcher, httpClient, logBroadcaster)
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	srv := httpserver.New(ctx, logger, cfgStore, fileStore, logStore, managerStore, pl, fileWatcher, httpClient, logBroadcaster)
 	httpSrv := &http.Server{
 		Addr:    fmt.Sprintf(":%d", cfg.Server.Port),
 		Handler: srv.Handler(),
 	}
-
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
 
 	var wg sync.WaitGroup
 	wg.Add(2)

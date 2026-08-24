@@ -4,6 +4,7 @@ package httpserver
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"html/template"
 	"log/slog"
@@ -45,13 +46,21 @@ type Server struct {
 	watcher        watcherControl
 	httpClient     *http.Client
 	logBroadcaster *logging.Broadcaster
+	appCtx         context.Context
 }
 
 // New builds the HTTP server. All dependencies are shared with the pipeline
 // goroutine, so GUI edits (sources, rename, folders) and actions
 // (pause/resume/rescan, review retry/delete) take effect on the same
 // running process without a restart, except where noted (watch path, port).
+//
+// appCtx is the process's root lifetime context (cancelled on SIGTERM/SIGINT
+// before http.Server.Shutdown is called); long-lived handlers such as the
+// SSE log stream watch it directly, since Shutdown only closes idle
+// connections and otherwise just waits out its own deadline for handlers
+// that never observe the shutdown.
 func New(
+	appCtx context.Context,
 	logger *slog.Logger,
 	cfgStore *config.Store,
 	fileStore *store.FileStore,
@@ -74,6 +83,7 @@ func New(
 		watcher:        w,
 		httpClient:     httpClient,
 		logBroadcaster: logBroadcaster,
+		appCtx:         appCtx,
 	}
 	s.routes()
 	return s

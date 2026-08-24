@@ -28,6 +28,7 @@ var logsTmpl = template.Must(template.New("logs").Parse(`
     <input type="number" id="limit" name="limit" value="{{.Limit}}">
   </div>
   <button type="submit">Filter</button>
+  <a href="/api/logs/text?level={{.Level}}&limit={{.Limit}}" download="happy-sorter-logs.txt">Download</a>
 </form>
 
 <div class="table-wrap">
@@ -79,7 +80,8 @@ func (s *Server) handleLogs(w http.ResponseWriter, r *http.Request) {
 	s.render(w, r, "Logs", template.HTML(buf.String()))
 }
 
-// handleLogsText returns log entries as plain text for one-click copy.
+// handleLogsText returns log entries as plain text, for the dashboard's
+// one-click copy button and the logs tab's download link.
 func (s *Server) handleLogsText(w http.ResponseWriter, r *http.Request) {
 	limit := 500
 	if v, err := strconv.Atoi(r.URL.Query().Get("limit")); err == nil && v > 0 {
@@ -95,6 +97,7 @@ func (s *Server) handleLogsText(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.Header().Set("Content-Disposition", `attachment; filename="happy-sorter-logs.txt"`)
 	var buf bytes.Buffer
 	for _, rec := range records {
 		fmt.Fprintf(&buf, "[%s] [%s] %s",

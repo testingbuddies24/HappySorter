@@ -51,6 +51,11 @@ func (s *Server) handleLogStream(w http.ResponseWriter, r *http.Request) {
 			flusher.Flush()
 		case <-r.Context().Done():
 			return
+		case <-s.appCtx.Done():
+			// Shutdown() only closes idle connections and otherwise waits
+			// out its own deadline; without this, an open SSE stream keeps
+			// this handler (and Shutdown) blocked until that timeout fires.
+			return
 		}
 	}
 }
