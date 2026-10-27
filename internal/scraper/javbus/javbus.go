@@ -1,12 +1,13 @@
 // Package javbus implements the aggregator adapter for javbus.com. Verified
 // live against the site: the detail page sits at a predictable URL
-// (hyphenated code, e.g. /SSIS-001), and every request — found or not —
-// gets a 302 to an age-verification interstitial (/doc/driver-verify)
-// regardless of cookies sent. The redirect is cosmetic: the 302 response
-// body already contains the real page HTML (or, for an unknown code, a
-// real "404 Page Not Found!" page), so this adapter's client disables
-// redirect-following and parses whichever body comes back directly. No
-// proxy or persisted cookie is needed.
+// (hyphenated code, e.g. /SSIS-001). Since early October 2026 the site
+// age/bot-gates requests that carry no Accept-Language header: they get a
+// 302 to a /doc/driver-verify interstitial with an EMPTY body (until then
+// the gate tucked the real page HTML into the 302 body, which is why this
+// adapter parses whichever body comes back instead of following
+// redirects). Sending any Accept-Language header — as every real browser
+// does — passes the gate: found codes return 200 with the real page, and
+// unknown codes a plain 404. No proxy or persisted cookie is needed.
 package javbus
 
 import (
@@ -22,7 +23,7 @@ import (
 	"github.com/testingbuddies24/HappySorter/internal/scraper"
 )
 
-const baseURL = "https://www.javbus.com"
+var baseURL = "https://www.javbus.com"
 
 var runtimeRegex = regexp.MustCompile(`(\d+)\s*分`)
 
@@ -30,9 +31,10 @@ type Adapter struct {
 	client *http.Client
 }
 
-// New wraps client in a shallow copy with redirect-following disabled —
-// see the package doc comment for why the adapter must read the body of
-// the 302 response instead of following it.
+// New wraps client in a shallow copy with redirect-following disabled, so
+// that if the age/bot gate (or any future redirect quirk) does answer with
+// a 302, the adapter parses whatever body comes back rather than chasing
+// the interstitial.
 func New(client *http.Client) *Adapter {
 	noRedirect := *client
 	noRedirect.CheckRedirect = func(req *http.Request, via []*http.Request) error {
@@ -65,6 +67,10 @@ func (a *Adapter) Lookup(ctx context.Context, code string) (*scraper.Metadata, e
 		return nil, fmt.Errorf("javbus: building request: %w", err)
 	}
 	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36")
+	// Required since the October 2026 age/bot gate: requests without an
+	// Accept-Language header get a 302 to the driver-verify interstitial
+	// with an empty body instead of the page (see package doc).
+	req.Header.Set("Accept-Language", "zh-TW,zh;q=0.9,en;q=0.8")
 
 	resp, err := a.client.Do(req)
 	if err != nil {
@@ -72,6 +78,11 @@ func (a *Adapter) Lookup(ctx context.Context, code string) (*scraper.Metadata, e
 	}
 	defer resp.Body.Close()
 
+	// Unknown codes now return a plain 404 (with the header set) instead of
+	// the old 302 carrying a "404 Page Not Found!" body.
+	if resp.StatusCode == http.StatusNotFound {
+		return nil, scraper.ErrNotFound
+	}
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusFound {
 		return nil, fmt.Errorf("javbus: unexpected status %d for %s", resp.StatusCode, url)
 	}
