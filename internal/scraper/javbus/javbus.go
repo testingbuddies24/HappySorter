@@ -66,14 +66,15 @@ func (a *Adapter) Capabilities() scraper.Capabilities {
 
 // Lookup fetches the JavBus detail page directly for code.
 //
-// FC2 codes get an immediate not-found: fc2.javbus.com lost its DNS record
-// (verified 2026-08-19: NODATA from javbus.com's own authoritative
-// nameservers), and the main domain returns a real 404 page for every FC2
-// URL form (/FC2-PPV-4956891, /FC2-4956891). JavBus no longer hosts FC2
-// content — the missav/javmenu/javdb-card adapters own those codes now.
+// FC2 codes get an immediate out-of-scope refusal: fc2.javbus.com lost its
+// DNS record (verified 2026-08-19: NODATA from javbus.com's own
+// authoritative nameservers), and the main domain returns a real 404 page
+// for every FC2 URL form (/FC2-PPV-4956891, /FC2-4956891). JavBus no longer
+// hosts FC2 content — the missav/javmenu/javdb-card adapters own those
+// codes now.
 func (a *Adapter) Lookup(ctx context.Context, code string) (*scraper.Metadata, error) {
 	if strings.HasPrefix(strings.ToUpper(code), "FC2") {
-		return nil, scraper.ErrNotFound
+		return nil, scraper.ErrOutOfScope
 	}
 	url := fmt.Sprintf("%s/%s", a.base, code)
 
@@ -121,27 +122,21 @@ func (a *Adapter) Lookup(ctx context.Context, code string) (*scraper.Metadata, e
 			scraper.ErrBlocked, code, resp.StatusCode)
 	}
 
-	// The page's own 識別碼 row must match the requested code: a detail page
-	// for a DIFFERENT code (e.g. a fallback redirect) would otherwise pin
-	// one video's cast and genres onto another. A panel with no readable
-	// code row means the page shape has drifted — say so loudly.
-	pageCode := pageIdentity(info)
-	if pageCode == "" {
-		return nil, fmt.Errorf("javbus: %w for %s: detail panel has no 識別碼 row (page shape changed?)",
-			scraper.ErrBlocked, code)
-	}
-	if !strings.EqualFold(pageCode, code) {
-		return nil, scraper.ErrNotFound
-	}
+	meta := &scraper.Metadata{}
+	pageCode := ""
 
-	title := strings.TrimSpace(doc.Find("h3").First().Text())
-	title = strings.TrimSpace(strings.TrimPrefix(title, code))
-
-	meta := &scraper.Metadata{Title: title}
-
+	// One pass over the panel's labelled rows extracts the fields AND the
+	// page's own 識別碼, so the code-row check and field extraction share the
+	// row idiom and can never drift apart. The value span is the one that is
+	// NOT the ".header" label: if a page drift leaves the label followed by
+	// bare text, no value span matches, and the empty pageCode below surfaces
+	// that loudly as ErrBlocked — taking the header span itself as the value
+	// would instead yield a silent not-found (the October-outage shape).
 	info.Find("p").Each(func(_ int, p *goquery.Selection) {
 		label := strings.TrimSpace(p.Find(".header").First().Text())
 		switch {
+		case strings.HasPrefix(label, "識別碼"):
+			pageCode = strings.TrimSpace(p.Find("span").Not(".header").Last().Text())
 		case strings.HasPrefix(label, "發行日期"):
 			text := strings.TrimSpace(strings.TrimPrefix(p.Text(), label))
 			if len(text) >= 4 {
@@ -163,6 +158,21 @@ func (a *Adapter) Lookup(ctx context.Context, code string) (*scraper.Metadata, e
 		}
 	})
 
+	// The page's own 識別碼 must match the requested code: a detail page for
+	// a DIFFERENT code (e.g. a fallback redirect) would otherwise pin one
+	// video's cast and genres onto another. No readable code row means the
+	// page shape has drifted — say so loudly.
+	if pageCode == "" {
+		return nil, fmt.Errorf("javbus: %w for %s: detail panel has no 識別碼 row (page shape changed?)",
+			scraper.ErrBlocked, code)
+	}
+	if !strings.EqualFold(pageCode, code) {
+		return nil, scraper.ErrNotFound
+	}
+
+	title := strings.TrimSpace(doc.Find("h3").First().Text())
+	meta.Title = strings.TrimSpace(strings.TrimPrefix(title, code))
+
 	// Scoped to ".genre label a": JavBus reuses the "genre" class on a second,
 	// unrelated block of hover-card spans wrapping the actress links further
 	// down the same info column, but only the real genre tags are wrapped in
@@ -181,21 +191,6 @@ func (a *Adapter) Lookup(ctx context.Context, code string) (*scraper.Metadata, e
 	}
 
 	return meta, nil
-}
-
-// pageIdentity extracts the code shown in the panel's 識別碼 row (the value
-// span after the "識別碼:" header), for verifying the page is for the
-// requested code. Returns "" when the row is absent or unreadable.
-func pageIdentity(info *goquery.Selection) string {
-	var code string
-	info.Find("p").EachWithBreak(func(_ int, p *goquery.Selection) bool {
-		if strings.HasPrefix(strings.TrimSpace(p.Find(".header").First().Text()), "識別碼") {
-			code = strings.TrimSpace(p.Find("span").Last().Text())
-			return false
-		}
-		return true
-	})
-	return code
 }
 
 func (a *Adapter) resolveURL(href string) string {

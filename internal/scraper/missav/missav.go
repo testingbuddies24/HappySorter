@@ -40,11 +40,11 @@ func (a *Adapter) Capabilities() scraper.Capabilities {
 
 // Lookup fetches the missav detail page directly for an FC2 code. Non-FC2
 // codes are not this adapter's job (missav uses slugs, not codes, for
-// regular releases — unverified), so they get an immediate not-found and the
-// manager falls through to the next source.
+// regular releases — unverified), so they get an immediate out-of-scope
+// refusal and the manager falls through to the next source.
 func (a *Adapter) Lookup(ctx context.Context, code string) (*scraper.Metadata, error) {
 	if !strings.HasPrefix(strings.ToUpper(code), "FC2") {
-		return nil, scraper.ErrNotFound
+		return nil, scraper.ErrOutOfScope
 	}
 	url := fmt.Sprintf("%s/en/%s", baseURL, strings.ToLower(code))
 

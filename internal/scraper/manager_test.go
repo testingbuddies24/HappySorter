@@ -184,3 +184,26 @@ func TestManagerLogsBlockedSourcesLoudly(t *testing.T) {
 %s`, n, buf.String())
 	}
 }
+
+// Out-of-scope refusals are capability boundaries (javbus has no FC2; the
+// FC2-only sources refuse everything else), decided with no request — they
+// must stay silent and never feed the not-found streak, or an FC2-heavy
+// ingest (or a mostly non-FC2 library with a FC2-only source enabled) would
+// cry wolf about a healthy source.
+func TestManagerOutOfScopeNeverCountsTowardStreak(t *testing.T) {
+	fc2Only := &fakeAdapter{name: "missav", err: ErrOutOfScope}
+	var buf bytes.Buffer
+	m := NewManager(slog.New(slog.NewTextHandler(&buf, nil)), fc2Only)
+
+	for i := 0; i < consecutiveNotFoundWarn+2; i++ {
+		if _, err := m.Lookup(context.Background(), "CODE-001"); err == nil {
+			t.Fatalf("Lookup %d: expected all-sources-failed error", i+1)
+		}
+	}
+	if strings.Contains(buf.String(), "not-found for every recent lookup") {
+		t.Errorf("out-of-scope refusals fed the not-found streak:\n%s", buf.String())
+	}
+	if strings.Contains(buf.String(), "source lookup failed") {
+		t.Errorf("out-of-scope refusal was logged as a failure:\n%s", buf.String())
+	}
+}

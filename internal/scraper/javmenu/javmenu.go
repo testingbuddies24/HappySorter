@@ -40,11 +40,11 @@ func (a *Adapter) Capabilities() scraper.Capabilities {
 
 // Lookup fetches the javmenu detail page directly for an FC2 code. Non-FC2
 // codes are not this adapter's job (regular codes work on the site but were
-// never verified against this parser), so they get an immediate not-found
-// and the manager falls through to the next source.
+// never verified against this parser), so they get an immediate out-of-scope
+// refusal and the manager falls through to the next source.
 func (a *Adapter) Lookup(ctx context.Context, code string) (*scraper.Metadata, error) {
 	if !strings.HasPrefix(strings.ToUpper(code), "FC2") {
-		return nil, scraper.ErrNotFound
+		return nil, scraper.ErrOutOfScope
 	}
 	// FC2-PPV-1234567 -> FC2-1234567: javmenu's URLs omit the PPV segment.
 	code = strings.ToUpper(strings.Replace(code, "FC2-PPV-", "FC2-", 1))

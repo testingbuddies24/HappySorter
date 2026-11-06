@@ -20,6 +20,14 @@ var ErrNotFound = errors.New("scraper: code not found")
 // the same day instead of starving metadata for weeks.
 var ErrBlocked = errors.New("scraper: source appears blocked")
 
+// ErrOutOfScope is returned by an Adapter's Lookup when the source
+// structurally doesn't carry the code shape at all — decided from the code
+// alone, with no request made (javbus dropped FC2 entirely; missav and
+// javmenu are FC2-only). Unlike ErrNotFound it says nothing about the
+// source's health, so the manager skips it silently and it never counts
+// toward the source's consecutive not-found streak.
+var ErrOutOfScope = errors.New("scraper: code out of scope for this source")
+
 // SourceKind classifies where an adapter sits in the fallback order and
 // what protections (proxy, age cookie) it typically needs.
 type SourceKind string

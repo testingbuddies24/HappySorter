@@ -1,6 +1,10 @@
 package missav
 
 import (
+	"context"
+	"errors"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -101,5 +105,20 @@ func TestParseDetailFallbackPageForUnknownCode(t *testing.T) {
 	}
 	if _, err := parseDetail(doc, "FC2-PPV-000001"); err != scraper.ErrNotFound {
 		t.Errorf("parseDetail error = %v, want ErrNotFound when page code doesn't match", err)
+	}
+}
+
+// missav is FC2-only, so the non-FC2 refusal is out-of-scope (a capability
+// boundary, decided with no request) — not a health signal, and the manager
+// must not count it toward the source's not-found streak.
+func TestLookupNonFC2ImmediateOutOfScope(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Error("non-FC2 lookup must not hit the network")
+	}))
+	t.Cleanup(server.Close)
+
+	_, err := New(server.Client()).Lookup(context.Background(), "PRED-897")
+	if !errors.Is(err, scraper.ErrOutOfScope) {
+		t.Errorf("err = %v, want ErrOutOfScope", err)
 	}
 }

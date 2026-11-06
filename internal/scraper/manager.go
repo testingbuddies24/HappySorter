@@ -7,18 +7,20 @@ import (
 	"sync"
 )
 
-// Manager tries its adapters in order (studio-direct first, aggregators as
-// fallback per docs/ARCHITECTURE.md § 4), accepts the first result with a
-// title and cover image, and fills any gaps that result leaves (e.g. no
-// Plot, no Director) from subsequent sources rather than settling for
-// whichever adapter happened to answer first.
 // consecutiveNotFoundWarn is the unbroken run of ErrNotFound answers from
 // one source (no success in between) worth a single warning. A single miss
 // is routine — most sources don't carry every code — but a long run usually
 // means the source stopped answering entirely (gate regression, selector
 // rot, DNS move) while the pipeline keeps succeeding via fallbacks.
+// Out-of-scope refusals (ErrOutOfScope) never count: they're decided from
+// the code shape alone and say nothing about the source's health.
 const consecutiveNotFoundWarn = 5
 
+// Manager tries its adapters in order (studio-direct first, aggregators as
+// fallback per docs/ARCHITECTURE.md § 4), accepts the first result with a
+// title and cover image, and fills any gaps that result leaves (e.g. no
+// Plot, no Director) from subsequent sources rather than settling for
+// whichever adapter happened to answer first.
 type Manager struct {
 	adapters []Adapter
 	logger   *slog.Logger
@@ -64,14 +66,19 @@ func (m *Manager) Lookup(ctx context.Context, code string) (*Metadata, error) {
 
 		meta, err := a.Lookup(ctx, code)
 		if err != nil {
-			if errors.Is(err, ErrNotFound) {
+			switch {
+			case errors.Is(err, ErrOutOfScope):
+				// The source structurally doesn't carry this code shape (no
+				// request was even made) — routine, and no signal about the
+				// source's health: skip silently, don't feed the streak.
+			case errors.Is(err, ErrNotFound):
 				// A single miss is routine and stays silent; a long run
 				// means the source has stopped answering — say so once.
 				if n := m.recordNotFound(a.Name()); n == consecutiveNotFoundWarn {
 					m.logger.Warn("source answered not-found for every recent lookup; it may be blocked or its selectors outdated",
 						"source", a.Name(), "consecutive_not_found", n, "code", code)
 				}
-			} else {
+			default:
 				m.logger.Warn("source lookup failed", "source", a.Name(), "code", code, "error", err)
 			}
 			continue

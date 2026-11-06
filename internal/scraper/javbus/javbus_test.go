@@ -201,13 +201,31 @@ func TestLookupDetailPanelWithoutCodeRowIsBlocked(t *testing.T) {
 	}
 }
 
-func TestLookupFC2ImmediateNotFound(t *testing.T) {
+// JavBus no longer hosts FC2 at all, so the refusal is out-of-scope (a
+// capability boundary, decided with no request) — not a health signal, and
+// the manager must not count it toward the source's not-found streak.
+func TestLookupFC2ImmediateOutOfScope(t *testing.T) {
 	a, _ := newTestAdapter(t, func(w http.ResponseWriter, r *http.Request) {
 		t.Error("FC2 lookup must not hit the network")
 	})
 
 	_, err := a.Lookup(context.Background(), "FC2-PPV-4956891")
-	if !errors.Is(err, scraper.ErrNotFound) {
-		t.Errorf("err = %v, want ErrNotFound", err)
+	if !errors.Is(err, scraper.ErrOutOfScope) {
+		t.Errorf("err = %v, want ErrOutOfScope", err)
+	}
+}
+
+// The likeliest drift shape: the value stops being wrapped in a span and
+// sits as bare text after the header. The header span must not be mistaken
+// for the value — that would compare the label itself against the code and
+// yield a silent not-found instead of the loud ErrBlocked.
+func TestLookupBareTextCodeRowIsBlocked(t *testing.T) {
+	a, _ := newTestAdapter(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`<!DOCTYPE html><html><body><div class="col-md-3 info"><p><span class="header">識別碼:</span> PRED-897</p></div></body></html>`))
+	})
+
+	_, err := a.Lookup(context.Background(), "PRED-897")
+	if !errors.Is(err, scraper.ErrBlocked) {
+		t.Errorf("err = %v, want ErrBlocked", err)
 	}
 }
