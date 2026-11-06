@@ -8,6 +8,14 @@
 // redirects). Sending any Accept-Language header — as every real browser
 // does — passes the gate: found codes return 200 with the real page, and
 // unknown codes a plain 404. No proxy or persisted cookie is needed.
+//
+// Any 200/302 body that is not a detail page is classified, not swallowed:
+// the site's HTML "404 Page Not Found" page reads as scraper.ErrNotFound (a
+// routine miss), anything else — an empty interstitial, a challenge page —
+// as scraper.ErrBlocked, which the manager logs on every occurrence so a
+// lockout can't again hide the way the October 2026 one did. The parsed
+// page's own 識別碼 row must also match the requested code, so a detail page
+// for a different code can never pin one video's cast onto another.
 package javbus
 
 import (
@@ -23,12 +31,13 @@ import (
 	"github.com/testingbuddies24/HappySorter/internal/scraper"
 )
 
-var baseURL = "https://www.javbus.com"
+const defaultBaseURL = "https://www.javbus.com"
 
 var runtimeRegex = regexp.MustCompile(`(\d+)\s*分`)
 
 type Adapter struct {
 	client *http.Client
+	base   string // site root; tests point this at an httptest server
 }
 
 // New wraps client in a shallow copy with redirect-following disabled, so
@@ -36,11 +45,17 @@ type Adapter struct {
 // a 302, the adapter parses whatever body comes back rather than chasing
 // the interstitial.
 func New(client *http.Client) *Adapter {
+	return newAdapter(client, defaultBaseURL)
+}
+
+// newAdapter is New with the site root replaced — tests use it instead of
+// mutating a package-level URL.
+func newAdapter(client *http.Client, base string) *Adapter {
 	noRedirect := *client
 	noRedirect.CheckRedirect = func(req *http.Request, via []*http.Request) error {
 		return http.ErrUseLastResponse
 	}
-	return &Adapter{client: &noRedirect}
+	return &Adapter{client: &noRedirect, base: base}
 }
 
 func (a *Adapter) Name() string { return "javbus" }
@@ -60,7 +75,7 @@ func (a *Adapter) Lookup(ctx context.Context, code string) (*scraper.Metadata, e
 	if strings.HasPrefix(strings.ToUpper(code), "FC2") {
 		return nil, scraper.ErrNotFound
 	}
-	url := fmt.Sprintf("%s/%s", baseURL, code)
+	url := fmt.Sprintf("%s/%s", a.base, code)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
@@ -94,6 +109,28 @@ func (a *Adapter) Lookup(ctx context.Context, code string) (*scraper.Metadata, e
 
 	info := doc.Find(".col-md-3.info")
 	if info.Length() == 0 {
+		// A 200/302 body with no detail panel is either the site's HTML
+		// not-found page (a routine miss) or a gate/challenge interstitial
+		// (the source is locked out). The distinction matters: reporting a
+		// lockout as not-found is how the October 2026 outage hid for three
+		// weeks — ErrBlocked gets logged by the manager on every occurrence.
+		if strings.Contains(doc.Text(), "404 Page Not Found") {
+			return nil, scraper.ErrNotFound
+		}
+		return nil, fmt.Errorf("javbus: %w for %s: status %d body has no detail panel (gate or challenge page?)",
+			scraper.ErrBlocked, code, resp.StatusCode)
+	}
+
+	// The page's own 識別碼 row must match the requested code: a detail page
+	// for a DIFFERENT code (e.g. a fallback redirect) would otherwise pin
+	// one video's cast and genres onto another. A panel with no readable
+	// code row means the page shape has drifted — say so loudly.
+	pageCode := pageIdentity(info)
+	if pageCode == "" {
+		return nil, fmt.Errorf("javbus: %w for %s: detail panel has no 識別碼 row (page shape changed?)",
+			scraper.ErrBlocked, code)
+	}
+	if !strings.EqualFold(pageCode, code) {
 		return nil, scraper.ErrNotFound
 	}
 
@@ -139,16 +176,31 @@ func (a *Adapter) Lookup(ctx context.Context, code string) (*scraper.Metadata, e
 	})
 
 	if cover, ok := doc.Find("a.bigImage").First().Attr("href"); ok {
-		meta.CoverURL = resolveURL(cover)
+		meta.CoverURL = a.resolveURL(cover)
 		meta.FanartURL = meta.CoverURL
 	}
 
 	return meta, nil
 }
 
-func resolveURL(href string) string {
+// pageIdentity extracts the code shown in the panel's 識別碼 row (the value
+// span after the "識別碼:" header), for verifying the page is for the
+// requested code. Returns "" when the row is absent or unreadable.
+func pageIdentity(info *goquery.Selection) string {
+	var code string
+	info.Find("p").EachWithBreak(func(_ int, p *goquery.Selection) bool {
+		if strings.HasPrefix(strings.TrimSpace(p.Find(".header").First().Text()), "識別碼") {
+			code = strings.TrimSpace(p.Find("span").Last().Text())
+			return false
+		}
+		return true
+	})
+	return code
+}
+
+func (a *Adapter) resolveURL(href string) string {
 	if strings.HasPrefix(href, "http") {
 		return href
 	}
-	return baseURL + href
+	return a.base + href
 }

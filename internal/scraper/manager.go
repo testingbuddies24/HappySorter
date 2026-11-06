@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"sync"
 )
 
 // Manager tries its adapters in order (studio-direct first, aggregators as
@@ -11,16 +12,34 @@ import (
 // title and cover image, and fills any gaps that result leaves (e.g. no
 // Plot, no Director) from subsequent sources rather than settling for
 // whichever adapter happened to answer first.
+// consecutiveNotFoundWarn is the unbroken run of ErrNotFound answers from
+// one source (no success in between) worth a single warning. A single miss
+// is routine — most sources don't carry every code — but a long run usually
+// means the source stopped answering entirely (gate regression, selector
+// rot, DNS move) while the pipeline keeps succeeding via fallbacks.
+const consecutiveNotFoundWarn = 5
+
 type Manager struct {
 	adapters []Adapter
 	logger   *slog.Logger
+
+	// notFoundRuns tracks each source's consecutive not-found streak so a
+	// dead source can be called out: before v1.0.12 a source returning
+	// not-found for every code produced zero log lines, and the resulting
+	// metadata starvation went unnoticed for three weeks.
+	mu           sync.Mutex
+	notFoundRuns map[string]int
 }
 
 // NewManager builds a Manager over adapters, tried in the order given —
 // callers are expected to have already sorted them by config priority and
 // filtered to enabled sources.
 func NewManager(logger *slog.Logger, adapters ...Adapter) *Manager {
-	return &Manager{adapters: adapters, logger: logger}
+	return &Manager{
+		adapters:     adapters,
+		logger:       logger,
+		notFoundRuns: make(map[string]int),
+	}
 }
 
 // Empty reports whether there are no enabled adapters at all — distinct
@@ -45,11 +64,21 @@ func (m *Manager) Lookup(ctx context.Context, code string) (*Metadata, error) {
 
 		meta, err := a.Lookup(ctx, code)
 		if err != nil {
-			if !errors.Is(err, ErrNotFound) {
+			if errors.Is(err, ErrNotFound) {
+				// A single miss is routine and stays silent; a long run
+				// means the source has stopped answering — say so once.
+				if n := m.recordNotFound(a.Name()); n == consecutiveNotFoundWarn {
+					m.logger.Warn("source answered not-found for every recent lookup; it may be blocked or its selectors outdated",
+						"source", a.Name(), "consecutive_not_found", n, "code", code)
+				}
+			} else {
 				m.logger.Warn("source lookup failed", "source", a.Name(), "code", code, "error", err)
 			}
 			continue
 		}
+		// The source answered, so any not-found streak it was on is over —
+		// even if this particular result is skipped as incomplete below.
+		m.resetNotFound(a.Name())
 		if meta.Title == "" || meta.CoverURL == "" {
 			m.logger.Warn("source returned incomplete metadata, skipping", "source", a.Name(), "code", code)
 			continue
@@ -78,6 +107,23 @@ func (m *Manager) Lookup(ctx context.Context, code string) (*Metadata, error) {
 // exhaust all enabled adapters for no benefit.
 func isComplete(m *Metadata) bool {
 	return m.Plot != "" && m.Director != "" && len(m.Genres) > 0 && len(m.Actresses) > 0
+}
+
+// recordNotFound extends source's consecutive not-found streak and returns
+// its new length. Other errors don't touch the streak: they already log per
+// occurrence, so a source alternating errors and misses is loud anyway.
+func (m *Manager) recordNotFound(source string) int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.notFoundRuns[source]++
+	return m.notFoundRuns[source]
+}
+
+// resetNotFound clears source's streak after it answered successfully.
+func (m *Manager) resetNotFound(source string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	delete(m.notFoundRuns, source)
 }
 
 // mergeFields copies any field src has that dst is missing. Reports whether

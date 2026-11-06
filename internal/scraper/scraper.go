@@ -12,6 +12,14 @@ import (
 // record of the given code (as opposed to a network/parse error).
 var ErrNotFound = errors.New("scraper: code not found")
 
+// ErrBlocked is returned by an Adapter's Lookup when the source answered,
+// but the response looks like an age gate, bot challenge, or other
+// interstitial rather than page data — the source is probably locked out,
+// not missing the code. Unlike ErrNotFound this is logged by the manager on
+// every occurrence, so a site silently locking the scraper out is noticed
+// the same day instead of starving metadata for weeks.
+var ErrBlocked = errors.New("scraper: source appears blocked")
+
 // SourceKind classifies where an adapter sits in the fallback order and
 // what protections (proxy, age cookie) it typically needs.
 type SourceKind string

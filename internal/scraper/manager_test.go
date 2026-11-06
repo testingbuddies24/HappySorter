@@ -1,8 +1,11 @@
 package scraper
 
 import (
+	"bytes"
 	"context"
+	"fmt"
 	"log/slog"
+	"strings"
 	"testing"
 )
 
@@ -102,5 +105,82 @@ func TestManagerLookupAllSourcesFail(t *testing.T) {
 	m := NewManager(slog.Default(), a)
 	if _, err := m.Lookup(context.Background(), "CODE-001"); err == nil {
 		t.Fatal("expected an error when every adapter fails")
+	}
+}
+
+// funcAdapter serves scripted answers, for tests that need a source whose
+// behaviour changes between calls.
+type funcAdapter struct {
+	name   string
+	lookup func() (*Metadata, error)
+}
+
+func (a *funcAdapter) Name() string               { return a.name }
+func (a *funcAdapter) Capabilities() Capabilities { return Capabilities{} }
+func (a *funcAdapter) Lookup(context.Context, string) (*Metadata, error) {
+	return a.lookup()
+}
+
+// A source answering not-found for everything used to produce zero log
+// lines (how the v1.0.12 outage hid for three weeks). The manager must stay
+// quiet for isolated misses but call the source out once the run gets long.
+func TestManagerWarnsOnceAtConsecutiveNotFoundThreshold(t *testing.T) {
+	missing := &fakeAdapter{name: "javbus", err: ErrNotFound}
+	var buf bytes.Buffer
+	m := NewManager(slog.New(slog.NewTextHandler(&buf, nil)), missing)
+
+	for i := 1; i < consecutiveNotFoundWarn; i++ {
+		if _, err := m.Lookup(context.Background(), "CODE-001"); err == nil {
+			t.Fatalf("Lookup %d: expected all-sources-failed error", i)
+		}
+	}
+	if n := strings.Count(buf.String(), "not-found for every recent lookup"); n != 0 {
+		t.Errorf("%d warnings before reaching %d consecutive not-founds:\n%s", n, consecutiveNotFoundWarn, buf.String())
+	}
+
+	if _, err := m.Lookup(context.Background(), "CODE-001"); err == nil {
+		t.Fatal("expected all-sources-failed error")
+	}
+	if n := strings.Count(buf.String(), "not-found for every recent lookup"); n != 1 {
+		t.Errorf("got %d warnings after %d consecutive not-founds, want exactly 1:\n%s", n, consecutiveNotFoundWarn, buf.String())
+	}
+}
+
+func TestManagerNotFoundStreakResetsOnSuccess(t *testing.T) {
+	// 4 misses, one success, then 5 more misses: exactly one warning, from
+	// the second streak — the success must clear the first.
+	script := []error{ErrNotFound, ErrNotFound, ErrNotFound, ErrNotFound, nil,
+		ErrNotFound, ErrNotFound, ErrNotFound, ErrNotFound, ErrNotFound}
+	i := 0
+	flip := &funcAdapter{name: "javbus", lookup: func() (*Metadata, error) {
+		defer func() { i++ }()
+		if script[i] != nil {
+			return nil, script[i]
+		}
+		return &Metadata{Title: "Title", CoverURL: "cover.jpg"}, nil
+	}}
+
+	var buf bytes.Buffer
+	m := NewManager(slog.New(slog.NewTextHandler(&buf, nil)), flip)
+	for range script {
+		m.Lookup(context.Background(), "CODE-001")
+	}
+
+	if n := strings.Count(buf.String(), "not-found for every recent lookup"); n != 1 {
+		t.Errorf("got %d warnings, want exactly 1 (streak reset by the intervening success):\n%s", n, buf.String())
+	}
+}
+
+// ErrBlocked is a lockout, not a miss: it must hit the loud path (a warning
+// on every occurrence), never the silent not-found path.
+func TestManagerLogsBlockedSourcesLoudly(t *testing.T) {
+	blocked := &fakeAdapter{name: "javbus", err: fmt.Errorf("javbus: %w", ErrBlocked)}
+	var buf bytes.Buffer
+	m := NewManager(slog.New(slog.NewTextHandler(&buf, nil)), blocked)
+
+	m.Lookup(context.Background(), "CODE-001")
+	if n := strings.Count(buf.String(), "source lookup failed"); n != 1 {
+		t.Errorf(`ErrBlocked produced %d "source lookup failed" lines, want 1 (must not be swallowed like ErrNotFound):
+%s`, n, buf.String())
 	}
 }

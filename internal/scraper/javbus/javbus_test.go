@@ -39,17 +39,16 @@ const detailHTML = `<!DOCTYPE html>
 </body>
 </html>`
 
-func newTestAdapter(t *testing.T, handler http.HandlerFunc) *Adapter {
+func newTestAdapter(t *testing.T, handler http.HandlerFunc) (*Adapter, string) {
 	t.Helper()
 	server := httptest.NewServer(handler)
 	t.Cleanup(server.Close)
-	baseURL = server.URL
-	return New(server.Client())
+	return newAdapter(server.Client(), server.URL), server.URL
 }
 
 func TestLookupParsesDetailAndSendsAcceptLanguage(t *testing.T) {
 	var gotAcceptLanguage, gotUserAgent string
-	a := newTestAdapter(t, func(w http.ResponseWriter, r *http.Request) {
+	a, serverURL := newTestAdapter(t, func(w http.ResponseWriter, r *http.Request) {
 		gotAcceptLanguage = r.Header.Get("Accept-Language")
 		gotUserAgent = r.Header.Get("User-Agent")
 		w.Write([]byte(detailHTML))
@@ -95,13 +94,13 @@ func TestLookupParsesDetailAndSendsAcceptLanguage(t *testing.T) {
 	if len(meta.Genres) != 2 || meta.Genres[0] != "制服" || meta.Genres[1] != "中出" {
 		t.Errorf("Genres = %v", meta.Genres)
 	}
-	if meta.CoverURL == "" || !strings.HasPrefix(meta.CoverURL, baseURL) {
-		t.Errorf("CoverURL = %q, want resolved against %s", meta.CoverURL, baseURL)
+	if meta.CoverURL == "" || !strings.HasPrefix(meta.CoverURL, serverURL) {
+		t.Errorf("CoverURL = %q, want resolved against %s", meta.CoverURL, serverURL)
 	}
 }
 
 func TestLookupNotFound404(t *testing.T) {
-	a := newTestAdapter(t, func(w http.ResponseWriter, r *http.Request) {
+	a, _ := newTestAdapter(t, func(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 	})
 
@@ -111,24 +110,99 @@ func TestLookupNotFound404(t *testing.T) {
 	}
 }
 
-// Until October 2026 the gate redirected EVERY request to the
-// driver-verify interstitial. If it ever comes back above the header fix,
-// the adapter must report not-found on the empty interstitial body rather
-// than erroring or returning junk metadata.
-func TestLookupEmptyGateRedirect(t *testing.T) {
-	a := newTestAdapter(t, func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Location", baseURL+"/doc/driver-verify")
+// Until October 2026 the gate redirected EVERY request to the driver-verify
+// interstitial with an empty 302 body. That body is a lockout, not a miss:
+// it must surface as ErrBlocked (which the manager logs loudly) — reporting
+// it as plain not-found is exactly how the October outage hid for weeks.
+func TestLookupEmptyGateRedirectIsBlocked(t *testing.T) {
+	a, _ := newTestAdapter(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Location", "/doc/driver-verify")
 		w.WriteHeader(http.StatusFound)
 	})
 
 	_, err := a.Lookup(context.Background(), "PRED-897")
+	if !errors.Is(err, scraper.ErrBlocked) {
+		t.Errorf("err = %v, want ErrBlocked", err)
+	}
+}
+
+// Pre-October, the gate's 302 carried the REAL page HTML in its body (see
+// the package doc). The adapter must keep parsing that body — treating a
+// 302 as terminal not-found would drop every code the day the gate
+// re-randomizes to this shape.
+func TestLookupRedirectCarryingDetailBodyStillParses(t *testing.T) {
+	a, _ := newTestAdapter(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Location", "/doc/driver-verify")
+		w.WriteHeader(http.StatusFound)
+		w.Write([]byte(detailHTML))
+	})
+
+	meta, err := a.Lookup(context.Background(), "PRED-897")
+	if err != nil {
+		t.Fatalf("Lookup: %v", err)
+	}
+	if len(meta.Actresses) != 1 || meta.Actresses[0] != "三好佑香" {
+		t.Errorf("Actresses = %v, want [三好佑香]", meta.Actresses)
+	}
+}
+
+// If the gate ever serves the interstitial as a 200 page instead of a
+// redirect, it must still read as ErrBlocked rather than a silent
+// not-found.
+func TestLookupGateInterstitialPageIsBlocked(t *testing.T) {
+	a, _ := newTestAdapter(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`<!DOCTYPE html><html><body><form id="driver-verify"><label>18 or older?</label><input type="checkbox"></form></body></html>`))
+	})
+
+	_, err := a.Lookup(context.Background(), "PRED-897")
+	if !errors.Is(err, scraper.ErrBlocked) {
+		t.Errorf("err = %v, want ErrBlocked", err)
+	}
+}
+
+// The site's own HTML not-found page (the shape unknown codes returned
+// before the October fix) is a routine miss, not a lockout.
+func TestLookupHTMLNotFoundPage(t *testing.T) {
+	a, _ := newTestAdapter(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`<!DOCTYPE html><html><body><h1>404 Page Not Found!</h1></body></html>`))
+	})
+
+	_, err := a.Lookup(context.Background(), "ZZZZ-999")
 	if !errors.Is(err, scraper.ErrNotFound) {
 		t.Errorf("err = %v, want ErrNotFound", err)
 	}
 }
 
+// A detail page for a DIFFERENT code (e.g. a fallback redirect like missav
+// serves) must read as a miss — never as metadata, or one video gets
+// another video's cast.
+func TestLookupWrongCodePageIsNotFound(t *testing.T) {
+	a, _ := newTestAdapter(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(detailHTML)) // page is for PRED-897
+	})
+
+	_, err := a.Lookup(context.Background(), "MIDE-001")
+	if !errors.Is(err, scraper.ErrNotFound) {
+		t.Errorf("err = %v, want ErrNotFound", err)
+	}
+}
+
+// A detail panel with no readable 識別碼 row means the page shape has
+// drifted — ErrBlocked, loudly, rather than half-parsed metadata or a
+// silent miss.
+func TestLookupDetailPanelWithoutCodeRowIsBlocked(t *testing.T) {
+	a, _ := newTestAdapter(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`<!DOCTYPE html><html><body><div class="col-md-3 info"><p><span class="header">發行日期:</span> 2026-10-16</p></div></body></html>`))
+	})
+
+	_, err := a.Lookup(context.Background(), "PRED-897")
+	if !errors.Is(err, scraper.ErrBlocked) {
+		t.Errorf("err = %v, want ErrBlocked", err)
+	}
+}
+
 func TestLookupFC2ImmediateNotFound(t *testing.T) {
-	a := newTestAdapter(t, func(w http.ResponseWriter, r *http.Request) {
+	a, _ := newTestAdapter(t, func(w http.ResponseWriter, r *http.Request) {
 		t.Error("FC2 lookup must not hit the network")
 	})
 
