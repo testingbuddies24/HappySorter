@@ -229,3 +229,48 @@ func TestLookupBareTextCodeRowIsBlocked(t *testing.T) {
 		t.Errorf("err = %v, want ErrBlocked", err)
 	}
 }
+
+// A second 識別碼-labelled row further down the panel must not hijack the
+// code-match check: the first readable row decides. This test fails under
+// last-write-wins (the bogus duplicate row would be compared and every
+// lookup would silently miss).
+func TestLookupDuplicateCodeRowTakesFirst(t *testing.T) {
+	a, _ := newTestAdapter(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`<!DOCTYPE html><html><body>
+<div class="col-md-3 info">
+	<p><span class="header">識別碼:</span> <span style="color:#CC0000;">PRED-897</span></p>
+	<p><span class="header">識別碼:</span> <span style="color:#CC0000;">MIDE-001</span></p>
+</div>
+</body></html>`))
+	})
+
+	if _, err := a.Lookup(context.Background(), "PRED-897"); err != nil {
+		t.Errorf("err = %v, want nil (the first code row must decide, not the duplicate)", err)
+	}
+}
+
+// The title strip must use the page's own rendering of the code, not the
+// request: EqualFold accepts a casing-different page, and trimming with the
+// request string would leave the code prefix embedded in Title.
+func TestLookupTitleTrimUsesPageCasing(t *testing.T) {
+	a, _ := newTestAdapter(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`<!DOCTYPE html>
+<html>
+<head><title>pred-897 - JavBus</title></head>
+<body>
+<h3>pred-897 大人アオハル 結婚5年目の記念日に妻と制服いちゃラブ中出しSEX 三好佑香</h3>
+<div class="col-md-3 info">
+	<p><span class="header">識別碼:</span> <span style="color:#CC0000;">pred-897</span></p>
+</div>
+</body>
+</html>`))
+	})
+
+	meta, err := a.Lookup(context.Background(), "PRED-897")
+	if err != nil {
+		t.Fatalf("Lookup: %v", err)
+	}
+	if meta.Title != "大人アオハル 結婚5年目の記念日に妻と制服いちゃラブ中出しSEX 三好佑香" {
+		t.Errorf("Title = %q, want the code prefix stripped via the page's own casing", meta.Title)
+	}
+}

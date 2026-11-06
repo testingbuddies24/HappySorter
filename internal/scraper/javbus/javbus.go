@@ -136,7 +136,12 @@ func (a *Adapter) Lookup(ctx context.Context, code string) (*scraper.Metadata, e
 		label := strings.TrimSpace(p.Find(".header").First().Text())
 		switch {
 		case strings.HasPrefix(label, "識別碼"):
-			pageCode = strings.TrimSpace(p.Find("span").Not(".header").Last().Text())
+			// First readable value wins (the pre-refactor extraction took the
+			// first matching row): a duplicate label further down the panel
+			// must not overwrite the real code row.
+			if pageCode == "" {
+				pageCode = strings.TrimSpace(p.Find("span").Not(".header").Last().Text())
+			}
 		case strings.HasPrefix(label, "發行日期"):
 			text := strings.TrimSpace(strings.TrimPrefix(p.Text(), label))
 			if len(text) >= 4 {
@@ -171,7 +176,10 @@ func (a *Adapter) Lookup(ctx context.Context, code string) (*scraper.Metadata, e
 	}
 
 	title := strings.TrimSpace(doc.Find("h3").First().Text())
-	meta.Title = strings.TrimSpace(strings.TrimPrefix(title, code))
+	// Trim with pageCode — the page's own value, EqualFold-verified against
+	// the request above — so the strip keeps working even if the page renders
+	// the code in different casing than the request.
+	meta.Title = strings.TrimSpace(strings.TrimPrefix(title, pageCode))
 
 	// Scoped to ".genre label a": JavBus reuses the "genre" class on a second,
 	// unrelated block of hover-card spans wrapping the actress links further
